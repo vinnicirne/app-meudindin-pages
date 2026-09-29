@@ -5,7 +5,8 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "tailwind": "tailwindcss -c tailwind.config.cjs -i ./input.css -o ./output.css --minify"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -13,5 +14,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mercadopago": "^2.0.9"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
   }
 }
