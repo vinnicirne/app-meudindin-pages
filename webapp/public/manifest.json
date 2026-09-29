@@ -1,0 +1,9 @@
+{
+  "name": "Meu DinDin",
+  "short_name": "Meu DinDin",
+  "description": "Controle Financeiro Descomplicado",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#006948"
+}

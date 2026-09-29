@@ -2,15 +2,15 @@
 
 import { AddTransactionUseCase } from '../../application/usecases/AddTransactionUseCase';
 import { SupabaseTransactionRepository } from '../../infrastructure/database/SupabaseTransactionRepository';
-import { supabaseClient } from '../../infrastructure/database/supabaseClient';
+import { createClient } from '../../utils/supabase/server';
 
 const transactionRepository = new SupabaseTransactionRepository();
 const addTransactionUseCase = new AddTransactionUseCase(transactionRepository);
 
 export async function addTransactionAction(formData: FormData) {
   try {
-    // Phase 2.5: Autenticação, Autorização e Segurança
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
       return { error: 'Não autorizado. Faça login para adicionar transações.' };
@@ -18,7 +18,6 @@ export async function addTransactionAction(formData: FormData) {
 
     const userId = user.id;
 
-    // Phase 2.4: Parse e validação de entrada
     const amount = Number(formData.get('amount'));
     const description = formData.get('description') as string;
     const dateStr = formData.get('date') as string;

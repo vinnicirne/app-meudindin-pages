@@ -1,15 +1,16 @@
 import { Transaction } from '../../domain/entities/Transaction';
 import { ITransactionRepository } from '../../domain/repositories/ITransactionRepository';
-import { supabaseClient } from './supabaseClient';
+import { createClient } from '../../utils/supabase/server';
 
 export class SupabaseTransactionRepository implements ITransactionRepository {
   private tableName = 'transactions';
 
   async create(transaction: Transaction): Promise<void> {
     const data = transaction.toJSON();
+    const supabase = await createClient();
     
     // Tratando o mapeamento para o banco se necessário, por exemplo, extraindo installments para jsonb.
-    const { error } = await supabaseClient
+    const { error } = await supabase
       .from(this.tableName)
       .insert([
         {
@@ -32,7 +33,8 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
   }
 
   async findById(id: string): Promise<Transaction | null> {
-    const { data, error } = await supabaseClient
+    const supabase = await createClient();
+    const { data, error } = await supabase
       .from(this.tableName)
       .select('*')
       .eq('id', id)
@@ -55,7 +57,8 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
   }
 
   async findByUserId(userId: string, filters?: { startDate?: Date; endDate?: Date; type?: 'INCOME' | 'EXPENSE' }): Promise<Transaction[]> {
-    let query = supabaseClient.from(this.tableName).select('*').eq('user_id', userId);
+    const supabase = await createClient();
+    let query = supabase.from(this.tableName).select('*').eq('user_id', userId);
 
     if (filters?.startDate) query = query.gte('date', filters.startDate.toISOString());
     if (filters?.endDate) query = query.lte('date', filters.endDate.toISOString());
@@ -83,8 +86,9 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
 
   async update(transaction: Transaction): Promise<void> {
     const data = transaction.toJSON();
+    const supabase = await createClient();
     
-    const { error } = await supabaseClient
+    const { error } = await supabase
       .from(this.tableName)
       .update({
         amount: data.amount,
@@ -103,7 +107,8 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabaseClient
+    const supabase = await createClient();
+    const { error } = await supabase
       .from(this.tableName)
       .delete()
       .eq('id', id);

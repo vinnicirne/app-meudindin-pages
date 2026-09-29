@@ -1,10 +1,11 @@
 import { IAuthRepository } from '../../domain/repositories/IAuthRepository';
 import { User } from '../../domain/entities/User';
-import { supabaseClient } from './supabaseClient';
+import { createClient } from '../../utils/supabase/server';
 
 export class SupabaseAuthRepository implements IAuthRepository {
   async signIn(email: string, password: string): Promise<User> {
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
@@ -20,7 +21,8 @@ export class SupabaseAuthRepository implements IAuthRepository {
   }
 
   async signUp(email: string, password: string, name?: string): Promise<User> {
-    const { data, error } = await supabaseClient.auth.signUp({
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -42,14 +44,16 @@ export class SupabaseAuthRepository implements IAuthRepository {
   }
 
   async signOut(): Promise<void> {
-    const { error } = await supabaseClient.auth.signOut();
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signOut();
     if (error) {
       throw new Error(error.message);
     }
   }
 
   async getCurrentUser(): Promise<User | null> {
-    const { data: { user }, error } = await supabaseClient.auth.getUser();
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
     
     if (error || !user) {
       return null;

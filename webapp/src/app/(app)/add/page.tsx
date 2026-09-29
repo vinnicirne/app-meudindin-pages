@@ -1,0 +1,373 @@
+'use client';
+
+import * as motion from "framer-motion/client";
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { addTransactionAction } from '@/app/actions/transactionActions';
+import { useState, useEffect, Suspense } from 'react';
+
+const EXPENSE_QUICK_TAGS = ['Supermercado', 'Combustível', 'Restaurante', 'Farmácia', 'Lazer', 'Uber'];
+const INCOME_QUICK_TAGS = ['Salário', 'Freelance', 'Rendimentos', 'Venda', 'Reembolso'];
+
+const CATEGORIES = [
+  { id: 'alimentacao', label: 'Alimentação', icon: 'restaurant', color: 'text-amber-500' },
+  { id: 'transporte', label: 'Transporte', icon: 'directions_car', color: 'text-blue-500' },
+  { id: 'moradia', label: 'Moradia', icon: 'home', color: 'text-indigo-500' },
+  { id: 'salario', label: 'Salário Mensal', icon: 'attach_money', color: 'text-[#1db576]' },
+  { id: 'lazer', label: 'Lazer & Entretenimento', icon: 'sports_esports', color: 'text-purple-500' },
+  { id: 'saude', label: 'Saúde & Farmácia', icon: 'medical_services', color: 'text-rose-500' },
+  { id: 'outros', label: 'Outros', icon: 'more_horiz', color: 'text-gray-500' },
+];
+
+function AddTransactionForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [loading, setLoading] = useState(false);
+  const [type, setType] = useState<'EXPENSE' | 'INCOME'>('EXPENSE');
+  const [frequency, setFrequency] = useState<'UNICA' | 'PARCELADA' | 'FIXA'>('UNICA');
+  const [installments, setInstallments] = useState(2);
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('alimentacao');
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    const typeParam = searchParams.get('type');
+    if (typeParam === 'INCOME' || typeParam === 'EXPENSE') {
+      setType(typeParam);
+      if (typeParam === 'INCOME') {
+        setCategory('salario');
+      } else {
+        setCategory('alimentacao');
+      }
+    }
+  }, [searchParams]);
+
+  function handleTypeChange(newType: 'EXPENSE' | 'INCOME') {
+    setType(newType);
+    if (newType === 'INCOME') {
+      if (frequency === 'PARCELADA') setFrequency('UNICA');
+      setCategory('salario');
+    } else {
+      setCategory('alimentacao');
+    }
+  }
+
+  function handleQuickTag(tag: string) {
+    setDescription(tag);
+  }
+
+  function setQuickDate(offsetDays: number) {
+    const d = new Date();
+    d.setDate(d.getDate() - offsetDays);
+    setDate(d.toISOString().split('T')[0]);
+  }
+
+  const isToday = date === new Date().toISOString().split('T')[0];
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date === yesterday.toISOString().split('T')[0];
+
+  const formattedDisplayDate = () => {
+    const [y, m, d] = date.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append('type', type);
+    formData.append('amount', amount.replace(',', '.'));
+    formData.append('description', description);
+    formData.append('date', date);
+    formData.append('categoryId', category);
+    formData.append('isRecurring', frequency === 'FIXA' ? 'true' : 'false');
+    formData.append('installmentsTotal', frequency === 'PARCELADA' ? String(installments) : '1');
+    if (notes) formData.append('notes', notes);
+
+    const res = await addTransactionAction(formData);
+
+    setLoading(false);
+    if (res?.error) {
+      alert('Erro: ' + res.error);
+    } else {
+      router.push('/');
+    }
+  }
+
+  const quickTags = type === 'EXPENSE' ? EXPENSE_QUICK_TAGS : INCOME_QUICK_TAGS;
+
+  return (
+    <main className="flex-1 flex flex-col max-w-md mx-auto w-full bg-white dark:bg-card min-h-screen pb-10">
+      {/* Top Handle bar & Header */}
+      <div className="px-6 pt-3 pb-2">
+        <div className="w-12 h-1 bg-gray-300 dark:bg-muted-foreground/30 rounded-full mx-auto mb-4" />
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black text-gray-900 dark:text-foreground tracking-tight">
+            Nova Transação
+          </h1>
+          <Link
+            href="/"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-700 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-muted transition-colors"
+          >
+            <span className="material-symbols-outlined text-xl">close</span>
+          </Link>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="px-6 py-4 flex flex-col gap-5">
+        {/* Toggle Despesa / Receita */}
+        <div className="grid grid-cols-2 gap-2 bg-[#f4f6f8] dark:bg-muted/60 p-1.5 rounded-2xl">
+          <button
+            type="button"
+            onClick={() => handleTypeChange('EXPENSE')}
+            className={`py-3 rounded-xl font-extrabold text-sm transition-all duration-200 ${
+              type === 'EXPENSE'
+                ? 'bg-[#ea3838] text-white shadow-md shadow-red-500/20'
+                : 'text-gray-600 dark:text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Despesa
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTypeChange('INCOME')}
+            className={`py-3 rounded-xl font-extrabold text-sm transition-all duration-200 ${
+              type === 'INCOME'
+                ? 'bg-[#10b981] text-white shadow-md shadow-emerald-500/20'
+                : 'text-gray-600 dark:text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Receita
+          </button>
+        </div>
+
+        {/* Frequência / Tipo de Lançamento */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Frequência / Tipo de Lançamento
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setFrequency('UNICA')}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
+                frequency === 'UNICA'
+                  ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                  : 'bg-white dark:bg-card text-gray-700 dark:text-foreground border-gray-200 dark:border-border hover:bg-gray-50'
+              }`}
+            >
+              Única
+            </button>
+
+            {type === 'EXPENSE' && (
+              <button
+                type="button"
+                onClick={() => setFrequency('PARCELADA')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+                  frequency === 'PARCELADA'
+                    ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                    : 'bg-white dark:bg-card text-gray-700 dark:text-foreground border-gray-200 dark:border-border hover:bg-gray-50'
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm">credit_card</span>
+                Parcelada
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setFrequency('FIXA')}
+              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+                frequency === 'FIXA'
+                  ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                  : 'bg-white dark:bg-card text-gray-700 dark:text-foreground border-gray-200 dark:border-border hover:bg-gray-50'
+              } ${type === 'INCOME' ? 'col-span-2' : ''}`}
+            >
+              <span className="material-symbols-outlined text-sm">sync_alt</span>
+              Fixa Mensal
+            </button>
+          </div>
+
+          {frequency === 'PARCELADA' && type === 'EXPENSE' && (
+            <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-xl border border-border/60 mt-1">
+              <span className="text-xs font-bold text-foreground">Número de parcelas:</span>
+              <input
+                type="number"
+                min="2"
+                max="72"
+                value={installments}
+                onChange={e => setInstallments(parseInt(e.target.value) || 2)}
+                className="w-16 px-2 py-1 bg-card border border-border rounded-lg text-center font-bold text-xs"
+              />
+              <span className="text-xs text-muted-foreground">x vezes</span>
+            </div>
+          )}
+        </div>
+
+        {/* Campo de Valor */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Valor (R$)
+          </label>
+          <div className="relative flex items-center">
+            <div className="w-full flex items-center px-4 py-3.5 bg-white dark:bg-card border border-blue-100 dark:border-border rounded-2xl shadow-sm focus-within:border-emerald-500 transition-all">
+              <span className={`text-base font-extrabold mr-2 ${type === 'EXPENSE' ? 'text-[#ea3838]' : 'text-[#10b981]'}`}>
+                R$
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                required
+                placeholder="0.00"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                className="w-full bg-transparent outline-none text-base font-bold text-gray-800 dark:text-foreground placeholder:text-gray-400"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Descrição / Título */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Descrição / Título
+          </label>
+          <div className="w-full flex items-center gap-3 px-4 py-3.5 bg-white dark:bg-card border border-blue-100 dark:border-border rounded-2xl shadow-sm focus-within:border-emerald-500 transition-all">
+            <span className="font-serif font-black text-gray-400 text-lg">T</span>
+            <input
+              type="text"
+              required
+              placeholder={type === 'EXPENSE' ? 'Ex: Supermercado, Aluguel...' : 'Ex: Salário Mensal, Pensão Alimentícia...'}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              className="w-full bg-transparent outline-none text-xs md:text-sm font-medium text-gray-800 dark:text-foreground placeholder:text-gray-400"
+            />
+          </div>
+
+          {/* Quick Tags Pills */}
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {quickTags.map(tag => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => handleQuickTag(tag)}
+                className={`px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors ${
+                  description === tag
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground hover:bg-gray-200'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Categoria */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Categoria
+          </label>
+          <div className="relative w-full">
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              className="w-full px-4 py-3.5 bg-white dark:bg-card border border-blue-100 dark:border-border rounded-2xl shadow-sm appearance-none font-bold text-xs md:text-sm text-gray-800 dark:text-foreground outline-none focus:border-emerald-500 pr-10"
+            >
+              {CATEGORIES.map(cat => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-base">
+              arrow_drop_down
+            </span>
+          </div>
+        </div>
+
+        {/* Data de Início */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Data de Início
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setQuickDate(0)}
+              className={`py-1.5 px-4 rounded-xl text-xs font-bold transition-all ${
+                isToday
+                  ? 'bg-[#c6f6e5] text-[#0d7355] border border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
+                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground'
+              }`}
+            >
+              Hoje
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuickDate(1)}
+              className={`py-1.5 px-4 rounded-xl text-xs font-bold transition-all ${
+                isYesterday
+                  ? 'bg-[#c6f6e5] text-[#0d7355] border border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
+                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground'
+              }`}
+            >
+              Ontem
+            </button>
+
+            <div className="relative flex items-center ml-1">
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+              />
+              <span className="text-xs font-bold text-[#0d7355] dark:text-emerald-400">
+                {formattedDisplayDate()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Observações (Opcional) */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
+            Observações (Opcional)
+          </label>
+          <div className="w-full flex items-center gap-3 px-4 py-3.5 bg-white dark:bg-card border border-blue-100 dark:border-border rounded-2xl shadow-sm focus-within:border-emerald-500 transition-all">
+            <span className="material-symbols-outlined text-gray-400 text-lg">note</span>
+            <input
+              type="text"
+              placeholder="Ex: Cartão Nubank, Carnê Magazine, etc."
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              className="w-full bg-transparent outline-none text-xs md:text-sm font-medium text-gray-800 dark:text-foreground placeholder:text-gray-400"
+            />
+          </div>
+        </div>
+
+        {/* Botão Salvar Transação */}
+        <button
+          type="submit"
+          disabled={loading}
+          className="mt-2 w-full py-4 rounded-2xl bg-[#00875a] hover:bg-[#00744d] active:scale-[0.99] text-white font-black text-sm md:text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-700/20 transition-all disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-lg">check</span>
+          {loading ? 'Salvando...' : 'Salvar Transação'}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+export default function AddTransaction() {
+  return (
+    <Suspense fallback={<div className="p-6">Carregando...</div>}>
+      <AddTransactionForm />
+    </Suspense>
+  );
+}

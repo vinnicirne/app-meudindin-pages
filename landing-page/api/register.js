@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, phone } = req.body;
 
     const supabaseUrl = process.env.SUPABASE_URL || 'https://sua-url-do-supabase.supabase.co';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'sua-service-role-key';
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       email,
       password,
       options: {
-        data: { name },
+        data: { name, phone },
       },
     });
 

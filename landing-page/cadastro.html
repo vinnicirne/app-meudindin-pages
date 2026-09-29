@@ -35,11 +35,20 @@
       </div>
 
       <!-- Email -->
-      <div class="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         <label class="text-sm font-bold text-on-surface">E-mail</label>
         <div class="input-field flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-200 bg-white transition-all">
           <span class="material-symbols-outlined text-outline">mail</span>
           <input type="email" id="email" required placeholder="seu@email.com" class="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-gray-400 font-medium text-sm">
+        </div>
+      </div>
+
+      <!-- WhatsApp / Telefone -->
+      <div class="flex flex-col gap-2">
+        <label class="text-sm font-bold text-on-surface">WhatsApp / Telefone</label>
+        <div class="input-field flex items-center gap-3 px-4 py-3 rounded-2xl border border-gray-200 bg-white transition-all">
+          <span class="material-symbols-outlined text-outline">phone</span>
+          <input type="tel" id="telefone" placeholder="(11) 99999-9999" class="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-gray-400 font-medium text-sm">
         </div>
       </div>
 
@@ -83,6 +92,7 @@
       
       const nome = document.getElementById('nome').value;
       const email = document.getElementById('email').value;
+      const telefone = document.getElementById('telefone')?.value || '';
       const senha = document.getElementById('senha').value;
       const confirmarSenha = document.getElementById('confirmarSenha').value;
       const btn = document.getElementById('submitBtn');
@@ -101,7 +111,7 @@
         const response = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: nome, email, password: senha })
+          body: JSON.stringify({ name: nome, email, phone: telefone, password: senha })
         });
 
         const data = await response.json();
