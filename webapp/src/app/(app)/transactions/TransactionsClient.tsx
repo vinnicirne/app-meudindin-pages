@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { useState, useMemo } from "react"
 import EditTransactionModal from '@/components/transactions/EditTransactionModal'
 import { deleteTransactionAction, togglePaidTransactionAction } from '@/app/actions/transactionActions'
+import { toast } from 'react-hot-toast'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 interface Transaction {
   id: string
@@ -56,6 +58,7 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
   const [search, setSearch] = useState('')
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null)
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -82,7 +85,7 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
       if (activeCategory !== 'todas' && t.category_id !== activeCategory) return false
       if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
       return true
-    })
+    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
   }, [byMonth, activeType, activeCategory, search])
 
   const totalIncome = filtered.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0)
@@ -98,13 +101,20 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
 
   async function handleDelete(id: string, e?: React.MouseEvent) {
     e?.stopPropagation()
-    if (!confirm('Tem certeza que deseja excluir esta transação?')) return
+    setTransactionToDelete(id)
+  }
+
+  async function confirmDelete() {
+    if (!transactionToDelete) return
+    const id = transactionToDelete
+    setTransactionToDelete(null)
     setDeletingId(id)
     const res = await deleteTransactionAction(id)
     setDeletingId(null)
     if (res?.error) {
-      alert('Erro ao excluir: ' + res.error)
+      toast.error('Erro ao excluir: ' + res.error)
     } else {
+      toast.success('Lançamento excluído!')
       router.refresh()
     }
   }
@@ -114,8 +124,9 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
     const newStatus = t.is_paid === false ? true : false
     const res = await togglePaidTransactionAction(t.id, newStatus)
     if (res?.error) {
-      alert('Erro ao alterar status: ' + res.error)
+      toast.error('Erro ao alterar status: ' + res.error)
     } else {
+      toast.success(newStatus ? 'Marcado como pago!' : 'Marcado como pendente!')
       router.refresh()
     }
   }
@@ -295,6 +306,14 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
           setEditingTransaction(null)
           router.refresh()
         }}
+      />
+
+      <ConfirmModal 
+        isOpen={Boolean(transactionToDelete)}
+        title="Excluir Lançamento"
+        description="Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita."
+        onConfirm={confirmDelete}
+        onCancel={() => setTransactionToDelete(null)}
       />
     </main>
   )

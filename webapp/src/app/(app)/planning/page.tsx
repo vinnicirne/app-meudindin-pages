@@ -15,7 +15,7 @@ export default function PlanningPage() {
   ];
 
   return (
-    <main className="flex-1 flex flex-col p-4 max-w-md mx-auto w-full relative bg-[#f8f9ff] min-h-screen pb-24">
+    <main className="flex-1 flex flex-col p-4 max-w-md mx-auto w-full relative bg-background min-h-screen pb-24">
       
       {/* Month Selector */}
       <div className="bg-card rounded-2xl p-2 mb-4 shadow-sm border border-border/50">

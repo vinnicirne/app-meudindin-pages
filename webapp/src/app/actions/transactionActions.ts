@@ -35,7 +35,7 @@ export async function addTransactionAction(formData: FormData) {
       userId,
       amount,
       description,
-      date: new Date(dateStr),
+      date: new Date(dateStr + "T12:00:00-03:00"),
       categoryId,
       type,
       isRecurring,
@@ -67,6 +67,7 @@ export async function updateTransactionAction(formData: FormData) {
     const categoryId = formData.get('categoryId') as string;
     const notes = (formData.get('notes') as string) || '';
     const isPaid = formData.get('isPaid') === 'true';
+    const isRecurring = formData.get('isRecurring') === 'true';
 
     if (!id || !amount || !description || !dateStr || !type || !categoryId) {
       return { error: 'Campos obrigatórios ausentes para atualização.' };
@@ -82,17 +83,40 @@ export async function updateTransactionAction(formData: FormData) {
       userId: user.id,
       amount,
       description,
-      date: new Date(dateStr),
+      date: new Date(dateStr + "T12:00:00-03:00"),
       categoryId,
       type,
       notes,
       isPaid,
+      isRecurring,
       installments: existing.installments,
       createdAt: existing.createdAt,
       updatedAt: new Date(),
     });
 
     await transactionRepository.update(updated);
+
+    // Se não era recorrente e agora o usuário ativou a recorrência no painel de edição
+    if (!existing.isRecurring && isRecurring) {
+      for (let i = 1; i <= 11; i++) {
+        const currentDate = new Date(updated.date);
+        currentDate.setMonth(currentDate.getMonth() + i);
+        
+        const futureTransaction = new (await import('../../domain/entities/Transaction')).Transaction({
+          userId: user.id,
+          amount,
+          description,
+          date: currentDate,
+          categoryId,
+          type,
+          notes,
+          isPaid: false, // Opcional: as futuras devem nascer pendentes
+          isRecurring: true,
+        });
+
+        await transactionRepository.create(futureTransaction);
+      }
+    }
 
     return { success: true };
   } catch (error: any) {

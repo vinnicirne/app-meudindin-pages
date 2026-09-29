@@ -8,7 +8,8 @@ import {
   updateUserPlanStatusAction, 
   updateUserRoleAction, 
   createUserAction, 
-  deleteUserAction 
+  deleteUserAction,
+  updateUserTrialAction
 } from '@/app/actions/adminUserActions'
 
 export interface AdminUserItem {
@@ -18,6 +19,7 @@ export interface AdminUserItem {
   phone?: string | null
   role: string | null
   plan_status: string | null
+  trial_ends_at?: string | null
   created_at: string
 }
 
@@ -111,6 +113,33 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
         setFeedback({ type: 'success', message: 'Assinatura/Status atualizado com sucesso!' })
         if (selectedUser && selectedUser.id === userId) {
           setSelectedUser({ ...selectedUser, plan_status: newStatus })
+        }
+      }
+    })
+  }
+
+  function handleTrialChange(userId: string, daysToAdd: number | null) {
+    setFeedback(null)
+    startTransition(async () => {
+      const res = await updateUserTrialAction(userId, daysToAdd)
+      if (res.error) {
+        setFeedback({ type: 'error', message: res.error })
+      } else {
+        let trialEndsAt = null
+        let newStatus = 'expired'
+        if (daysToAdd !== null) {
+          const date = new Date()
+          date.setDate(date.getDate() + daysToAdd)
+          trialEndsAt = date.toISOString()
+          newStatus = 'trial'
+        }
+        
+        setUsers(prev =>
+          prev.map(u => (u.id === userId ? { ...u, plan_status: newStatus, trial_ends_at: trialEndsAt } : u))
+        )
+        setFeedback({ type: 'success', message: daysToAdd ? `Teste de ${daysToAdd} dias ativado com sucesso!` : 'Teste removido.' })
+        if (selectedUser && selectedUser.id === userId) {
+          setSelectedUser({ ...selectedUser, plan_status: newStatus, trial_ends_at: trialEndsAt })
         }
       }
     })
@@ -409,9 +438,49 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
                 </div>
 
                 {/* Ações de Assinatura (Adicionar / Remover) */}
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <label className="text-xs font-bold text-foreground block">
-                    Controle de Assinatura
+                    Período de Teste (Gratuito)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => handleTrialChange(selectedUser.id, 7)}
+                      className="text-[10px] h-8 rounded-xl font-bold bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800/30 dark:text-blue-400"
+                    >
+                      + 7 Dias
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => handleTrialChange(selectedUser.id, 15)}
+                      className="text-[10px] h-8 rounded-xl font-bold bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800/30 dark:text-blue-400"
+                    >
+                      + 15 Dias
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => handleTrialChange(selectedUser.id, 30)}
+                      className="text-[10px] h-8 rounded-xl font-bold bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800/30 dark:text-blue-400"
+                    >
+                      + 30 Dias
+                    </Button>
+                  </div>
+                  {selectedUser.plan_status === 'trial' && selectedUser.trial_ends_at && (
+                    <p className="text-[11px] text-muted-foreground text-center">
+                      Vence em: {new Date(selectedUser.trial_ends_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                  )}
+
+                  <hr className="my-3 border-border/50" />
+
+                  <label className="text-xs font-bold text-foreground block">
+                    Acesso Pago Permanente
                   </label>
                   <div className="flex flex-col gap-2">
                     {selectedUser.plan_status === 'active' ? (
@@ -422,8 +491,8 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
                         onClick={() => handleStatusChange(selectedUser.id, 'blocked')}
                         className="text-xs h-9 rounded-xl flex items-center justify-center gap-1.5"
                       >
-                        <span className="material-symbols-outlined text-base">remove_circle</span>
-                        Remover / Cancelar Assinatura
+                        <span className="material-symbols-outlined text-base">block</span>
+                        Bloquear Acesso
                       </Button>
                     ) : (
                       <Button
@@ -433,8 +502,8 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
                         onClick={() => handleStatusChange(selectedUser.id, 'active')}
                         className="text-xs h-9 rounded-xl bg-[#1db576] hover:bg-[#1db576]/90 text-white flex items-center justify-center gap-1.5"
                       >
-                        <span className="material-symbols-outlined text-base">add_circle</span>
-                        Adicionar / Liberar Assinatura
+                        <span className="material-symbols-outlined text-base">check_circle</span>
+                        Ativar Pagante (Ilimitado)
                       </Button>
                     )}
 

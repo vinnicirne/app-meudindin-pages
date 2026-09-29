@@ -146,3 +146,32 @@ export async function updateUserRoleAction(userId: string, newRole: 'user' | 'ad
     return { error: err.message || 'Erro ao alterar permissão do usuário.' }
   }
 }
+
+export async function updateUserTrialAction(userId: string, daysToAdd: number | null) {
+  try {
+    const supabase = await checkAdmin()
+    
+    let trialEndsAt = null;
+    let newStatus = 'expired';
+
+    if (daysToAdd !== null) {
+      const date = new Date();
+      date.setDate(date.getDate() + daysToAdd);
+      trialEndsAt = date.toISOString();
+      newStatus = 'trial';
+    }
+    
+    const { error } = await supabase
+      .from('users')
+      .update({ trial_ends_at: trialEndsAt, plan_status: newStatus })
+      .eq('id', userId)
+
+    if (error) throw error
+
+    revalidatePath('/admin/users')
+    revalidatePath('/admin')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message || 'Erro ao atualizar período de teste.' }
+  }
+}

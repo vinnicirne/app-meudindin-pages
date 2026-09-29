@@ -21,18 +21,21 @@ export class SupabaseAuthRepository implements IAuthRepository {
   }
 
   async signUp(email: string, password: string, name?: string): Promise<User> {
-    const supabase = await createClient();
-    const { data, error } = await supabase.auth.signUp({
+    const { createAdminClient } = await import('../../utils/supabase/admin');
+    const supabase = createAdminClient();
+    
+    // Usando a API admin para criar o usuário e pular a confirmação de email
+    const { data, error } = await supabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: {
-          name: name
-        }
+      email_confirm: true,
+      user_metadata: {
+        name: name
       }
     });
 
     if (error || !data.user) {
+      console.error('[SupabaseAuthRepository] Erro detalhado no signUp:', error);
       throw new Error(error?.message || 'Falha ao criar conta');
     }
 

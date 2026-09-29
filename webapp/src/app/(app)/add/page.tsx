@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { addTransactionAction } from '@/app/actions/transactionActions';
 import { useState, useEffect, Suspense } from 'react';
+import { toast } from 'react-hot-toast';
 
 const EXPENSE_QUICK_TAGS = ['Supermercado', 'Combustível', 'Restaurante', 'Farmácia', 'Lazer', 'Uber'];
 const INCOME_QUICK_TAGS = ['Salário', 'Freelance', 'Rendimentos', 'Venda', 'Reembolso'];
@@ -106,8 +107,9 @@ function AddTransactionForm() {
 
     setLoading(false);
     if (res?.error) {
-      alert('Erro: ' + res.error);
+      toast.error('Erro: ' + res.error);
     } else {
+      toast.success('Lançamento adicionado!');
       router.push('/');
     }
   }
@@ -225,7 +227,7 @@ function AddTransactionForm() {
         {/* Campo de Valor */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
-            Valor (R$)
+            {frequency === 'PARCELADA' ? 'Valor Total da Compra (R$)' : 'Valor (R$)'}
           </label>
           <div className="relative flex items-center">
             <div className="w-full flex items-center px-4 py-3.5 bg-white dark:bg-card border border-blue-100 dark:border-border rounded-2xl shadow-sm focus-within:border-emerald-500 transition-all">
@@ -243,6 +245,14 @@ function AddTransactionForm() {
               />
             </div>
           </div>
+          {frequency === 'PARCELADA' && type === 'EXPENSE' && amount && !isNaN(parseFloat(amount.replace(',', '.'))) && (
+            <div className="mt-1 flex gap-2 items-start p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-xl">
+              <span className="material-symbols-outlined text-blue-500 text-lg shrink-0">info</span>
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-snug">
+                O sistema lançará automaticamente <strong className="font-black">{installments} parcelas de R$ {(parseFloat(amount.replace(',', '.')) / installments).toFixed(2).replace('.', ',')}</strong> para os próximos meses.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Descrição / Título */}

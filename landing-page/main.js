@@ -26,8 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
     buyButtons.forEach(button => {
         button.addEventListener('click', (e) => {
             e.preventDefault();
-            // Redireciona para a página de cadastro em vez de ir direto pro pagamento
-            window.location.href = 'cadastro.html';
+            // Redireciona para a página de cadastro do webapp
+            window.location.href = 'https://meudindin26.vercel.app/cadastro';
         });
     });
 });

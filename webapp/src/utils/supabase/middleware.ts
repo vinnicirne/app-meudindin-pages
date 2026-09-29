@@ -41,10 +41,29 @@ export async function updateSession(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (
-      !user &&
-      !request.nextUrl.pathname.startsWith('/login')
-    ) {
+    const publicRoutes = [
+      '/login',
+      '/cadastro',
+      '/aguardando',
+      '/forgot-password',
+      '/update-password',
+      '/auth/callback',
+      '/api/register',
+      '/api/webhooks',
+    ]
+    const isPublicRoute = publicRoutes.some(route => request.nextUrl.pathname.startsWith(route))
+
+    // Se o Supabase redirecionar pro site principal com um código de autenticação
+    if (request.nextUrl.searchParams.has('code') && !request.nextUrl.pathname.startsWith('/auth/callback')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth/callback'
+      if (!url.searchParams.has('next')) {
+        url.searchParams.set('next', '/update-password')
+      }
+      return NextResponse.redirect(url)
+    }
+
+    if (!user && !isPublicRoute) {
       const url = request.nextUrl.clone()
       url.pathname = '/login'
       return NextResponse.redirect(url)

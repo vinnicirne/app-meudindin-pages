@@ -15,8 +15,10 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       description: data.description,
       title: data.description,
       date: data.date.toISOString(),
+      timestamp: data.date.getTime(),
       category_id: data.categoryId,
       type: data.type,
+      is_recurring: data.isRecurring || false,
     };
 
     if (data.installments) {
@@ -68,6 +70,7 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       type: data.type,
       notes: data.notes || '',
       isPaid: data.is_paid !== undefined ? data.is_paid : true,
+      isRecurring: data.is_recurring,
       installments: data.installments,
       createdAt: data.created_at ? new Date(data.created_at) : new Date(data.date || Date.now()),
       updatedAt: data.updated_at ? new Date(data.updated_at) : new Date(data.date || Date.now())
@@ -98,6 +101,7 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       type: row.type,
       notes: row.notes || '',
       isPaid: row.is_paid !== undefined ? row.is_paid : true,
+      isRecurring: row.is_recurring,
       installments: row.installments,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(row.date),
       updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(row.date)
@@ -112,10 +116,12 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       amount: data.amount,
       description: data.description,
       date: data.date.toISOString(),
+      timestamp: data.date.getTime(),
       category_id: data.categoryId,
       type: data.type,
       notes: data.notes || '',
       is_paid: data.isPaid !== undefined ? data.isPaid : true,
+      is_recurring: data.isRecurring || false,
       installments: data.installments,
       updated_at: new Date().toISOString(),
     };

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface Props {
   isAdmin?: boolean
@@ -29,7 +30,8 @@ export default function SidebarClient({ isAdmin }: Props) {
         )}
       </nav>
 
-      <div className="mt-auto pt-4 border-t border-border">
+      <div className="mt-auto pt-4 border-t border-border flex flex-col gap-2">
+        <ThemeToggle />
         <NavItem href="/profile" icon="person" label="Meu Perfil" active={pathname === '/profile'} />
       </div>
     </aside>

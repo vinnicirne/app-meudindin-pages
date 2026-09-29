@@ -21,11 +21,52 @@ export class AddTransactionUseCase {
   constructor(private transactionRepository: ITransactionRepository) {}
 
   async execute(request: AddTransactionRequestDTO): Promise<Transaction> {
-    const transaction = new Transaction(request);
+    if (request.installments && request.installments.total > 1) {
+      let firstTransaction: Transaction | null = null;
+      const totalInstallments = request.installments.total;
+      const installmentAmount = Number((request.amount / totalInstallments).toFixed(2));
+      
+      for (let i = 0; i < totalInstallments; i++) {
+        const currentDate = new Date(request.date);
+        currentDate.setMonth(currentDate.getMonth() + i);
+        
+        const transaction = new Transaction({
+          ...request,
+          amount: installmentAmount,
+          description: `${request.description} (${i + 1}/${totalInstallments})`,
+          date: currentDate,
+          isPaid: i === 0 ? (request.isPaid !== undefined ? request.isPaid : true) : false,
+          isRecurring: false,
+          installments: {
+            current: i + 1,
+            total: totalInstallments
+          }
+        });
 
-    // Na arquitetura Unicórnio, nós delegamos a persistência
-    await this.transactionRepository.create(transaction);
+        await this.transactionRepository.create(transaction);
+        if (i === 0) firstTransaction = transaction;
+      }
+      return firstTransaction!;
+    } else if (request.isRecurring) {
+      let firstTransaction: Transaction | null = null;
+      // Cria para os próximos 12 meses
+      for (let i = 0; i < 12; i++) {
+        const currentDate = new Date(request.date);
+        currentDate.setMonth(currentDate.getMonth() + i);
+        
+        const transaction = new Transaction({
+          ...request,
+          date: currentDate,
+        });
 
-    return transaction;
+        await this.transactionRepository.create(transaction);
+        if (i === 0) firstTransaction = transaction;
+      }
+      return firstTransaction!;
+    } else {
+      const transaction = new Transaction(request);
+      await this.transactionRepository.create(transaction);
+      return transaction;
+    }
   }
 }

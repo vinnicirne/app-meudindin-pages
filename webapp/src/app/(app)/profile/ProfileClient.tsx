@@ -5,6 +5,7 @@ import { logoutAction } from '@/app/actions/authActions';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface Props {
   userId: string;
@@ -126,6 +127,8 @@ export default function ProfileClient({
           </div>
           <span className="material-symbols-outlined text-muted-foreground text-[20px]">chevron_right</span>
         </button>
+
+        <ThemeToggle />
 
         {/* Link para admin — só aparece para admins */}
         {role === 'admin' && (

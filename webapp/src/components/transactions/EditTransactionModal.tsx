@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { updateTransactionAction } from '@/app/actions/transactionActions'
+import { toast } from 'react-hot-toast'
 
 interface Transaction {
   id: string
@@ -12,6 +13,7 @@ interface Transaction {
   category_id: string
   notes?: string
   is_paid?: boolean
+  is_recurring?: boolean
 }
 
 const CATEGORIES = [
@@ -77,6 +79,9 @@ function EditTransactionForm({
   const [isPaid, setIsPaid] = useState<boolean>(
     transaction.is_paid !== undefined ? transaction.is_paid : true
   )
+  const [isRecurring, setIsRecurring] = useState<boolean>(
+    transaction.is_recurring || false
+  )
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -91,13 +96,15 @@ function EditTransactionForm({
     formData.append('categoryId', categoryId)
     formData.append('notes', notes)
     formData.append('isPaid', String(isPaid))
+    formData.append('isRecurring', String(isRecurring))
 
     const res = await updateTransactionAction(formData)
     setLoading(false)
 
     if (res?.error) {
-      alert('Erro: ' + res.error)
+      toast.error('Erro: ' + res.error)
     } else {
+      toast.success('Lançamento atualizado!')
       onSuccess()
       onClose()
     }
@@ -182,6 +189,34 @@ function EditTransactionForm({
               }`}
             >
               {isPaid ? 'Dar Baixa ✓' : 'Marcar Pendente'}
+            </button>
+          </div>
+
+          {/* Frequência (Fixa Mensal) */}
+          <div className="flex items-center justify-between p-3.5 bg-muted/30 border border-border/70 rounded-2xl">
+            <div className="flex items-center gap-2.5">
+              <span className={`material-symbols-outlined text-xl ${isRecurring ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                sync_alt
+              </span>
+              <div>
+                <p className="text-xs font-bold text-foreground">
+                  Lançamento Fixo Mensal
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Se ativado, representa uma conta recorrente.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsRecurring(!isRecurring)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
+                isRecurring
+                  ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                  : 'bg-muted text-muted-foreground border-border/50 hover:bg-muted/80'
+              }`}
+            >
+              {isRecurring ? 'Sim ✓' : 'Não'}
             </button>
           </div>
 

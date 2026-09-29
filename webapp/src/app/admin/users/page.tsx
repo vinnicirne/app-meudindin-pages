@@ -19,7 +19,7 @@ export default async function AdminUsersPage() {
 
   const { data: usersData, error } = await supabase
     .from('users')
-    .select('id, name, email, phone, role, plan_status, created_at')
+    .select('id, name, email, phone, role, plan_status, trial_ends_at, created_at')
     .order('created_at', { ascending: false })
 
   const users: AdminUserItem[] = (usersData as AdminUserItem[]) || []

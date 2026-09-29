@@ -4,10 +4,13 @@ import * as motion from "framer-motion/client";
 import { loginAction } from '../actions/authActions';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { toast } from 'react-hot-toast';
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
@@ -15,8 +18,9 @@ export default function LoginPage() {
     setLoading(false);
 
     if (res?.error) {
-      alert("Erro ao entrar: " + res.error);
+      toast.error(res.error);
     } else {
+      toast.success("Login realizado com sucesso!");
       router.push('/');
     }
   }
@@ -52,14 +56,31 @@ export default function LoginPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-foreground/80">Senha</label>
-            <input 
-              type="password" 
-              name="password"
-              required
-              placeholder="••••••••"
-              className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
-            />
+            <div className="flex justify-between items-center">
+              <label className="text-sm font-semibold text-foreground/80">Senha</label>
+              <Link href="/forgot-password" className="text-xs font-bold text-primary hover:underline">
+                Esqueceu a senha?
+              </Link>
+            </div>
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"}
+                name="password"
+                required
+                placeholder="••••••••"
+                className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 pr-12 font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
+                title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+              >
+                <span className="material-symbols-outlined text-xl">
+                  {showPassword ? "visibility_off" : "visibility"}
+                </span>
+              </button>
+            </div>
           </div>
 
           <button 
