@@ -16,13 +16,19 @@ export default async function handler(req, res) {
     const body = {
       items: [
         {
-          id: "meu_dindin_vitalicio",
-          title: "Meu DinDin - Acesso Vitalício",
+          id: "meu_dindin_anual",
+          title: "Meu DinDin - Assinatura Anual",
           quantity: 1,
-          unit_price: 29.00,
+          unit_price: 1.00,
           currency_id: "BRL",
         }
-      ]
+      ],
+      back_urls: {
+        success: "https://localhost:3000/login",
+        failure: "https://localhost:4000/cadastro.html",
+        pending: "https://localhost:4000/cadastro.html",
+      },
+      auto_return: "approved",
     };
 
     const response = await preference.create({ body });

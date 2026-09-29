@@ -1,0 +1,38 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+export function BottomNav() {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {/* Spacer to prevent content from hiding behind the bottom nav */}
+      <div className="h-20 sm:hidden"></div>
+      
+      {/* Bottom Navigation for Mobile */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 h-20 bg-[#eef5f0] flex items-center justify-around px-2 pb-safe z-40 border-t border-border/50">
+        <NavItem href="/" icon="home" label="Início" active={pathname === '/'} />
+        <NavItem href="/graphics" icon="pie_chart" label="Gráficos" active={pathname === '/graphics'} />
+        <NavItem href="/transactions" icon="receipt_long" label="Extrato" active={pathname === '/transactions'} />
+        <NavItem href="/planning" icon="account_balance_wallet" label="Metas" active={pathname === '/planning'} />
+      </nav>
+    </>
+  );
+}
+
+function NavItem({ href, icon, label, active = false }: { href: string; icon: string; label: string; active?: boolean }) {
+  return (
+    <Link href={href} className="flex flex-col items-center justify-center gap-1 w-16 h-full text-center group">
+      <div className={`flex items-center justify-center px-4 py-1 rounded-full transition-colors ${active ? 'bg-[#c5f0da] text-primary' : 'text-muted-foreground group-hover:bg-[#c5f0da]/50'}`}>
+        <span className={`material-symbols-outlined text-2xl ${active ? 'font-variation-settings-[\\"FILL\\"_1]' : ''}`}>
+          {icon}
+        </span>
+      </div>
+      <span className={`text-[10px] font-semibold ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+        {label}
+      </span>
+    </Link>
+  );
+}
