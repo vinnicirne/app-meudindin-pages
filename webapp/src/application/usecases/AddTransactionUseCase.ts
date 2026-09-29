@@ -9,6 +9,8 @@ export interface AddTransactionRequestDTO {
   categoryId: string;
   type: 'INCOME' | 'EXPENSE';
   isRecurring?: boolean;
+  notes?: string;
+  isPaid?: boolean;
   installments?: {
     current: number;
     total: number;

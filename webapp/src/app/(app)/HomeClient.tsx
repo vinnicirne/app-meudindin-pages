@@ -2,7 +2,10 @@
 
 import * as motion from "framer-motion/client"
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
+import EditTransactionModal from '@/components/transactions/EditTransactionModal'
+import { deleteTransactionAction, togglePaidTransactionAction } from '@/app/actions/transactionActions'
 
 interface Transaction {
   id: string
@@ -11,6 +14,8 @@ interface Transaction {
   date: string
   type: 'INCOME' | 'EXPENSE'
   category_id: string
+  notes?: string
+  is_paid?: boolean
 }
 
 const MONTH_NAMES = [
@@ -23,9 +28,12 @@ function formatCurrency(value: number) {
 }
 
 export default function HomeClient({ transactions }: { transactions: Transaction[] }) {
+  const router = useRouter()
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -55,13 +63,42 @@ export default function HomeClient({ transactions }: { transactions: Transaction
   )
   const balance = totalIncome - totalExpense
 
+  // Baixa / liquidadas do mês
+  const paidCount = useMemo(() => filtered.filter(t => t.is_paid !== false).length, [filtered])
+  const pendingCount = filtered.length - paidCount
+
   const categoryLabel: Record<string, string> = {
     alimentacao: 'Alimentação',
     transporte: 'Transporte',
     moradia: 'Moradia',
     salario: 'Salário',
     lazer: 'Lazer',
+    saude: 'Saúde & Farmácia',
     outros: 'Outros',
+  }
+
+  async function handleDelete(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    if (!confirm('Tem certeza que deseja excluir esta transação?')) return
+    setDeletingId(id)
+    const res = await deleteTransactionAction(id)
+    setDeletingId(null)
+    if (res?.error) {
+      alert('Erro ao excluir: ' + res.error)
+    } else {
+      router.refresh()
+    }
+  }
+
+  async function handleTogglePaid(t: Transaction, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    const newStatus = t.is_paid === false ? true : false
+    const res = await togglePaidTransactionAction(t.id, newStatus)
+    if (res?.error) {
+      alert('Erro ao alterar status: ' + res.error)
+    } else {
+      router.refresh()
+    }
   }
 
   return (
@@ -97,14 +134,14 @@ export default function HomeClient({ transactions }: { transactions: Transaction
         transition={{ delay: 0.1 }}
         className="bg-[#1a5b48] text-white rounded-3xl p-5 shadow-sm mb-4"
       >
-        <div className="flex flex-col gap-1 mb-4">
+        <div className="flex flex-col gap-1 mb-3">
           <span className="text-white/80 text-xs font-semibold">Saldo Total Geral</span>
           <span className="text-3xl font-extrabold tracking-tight">{formatCurrency(balance)}</span>
         </div>
-        <div className="mb-6">
-          <div className="inline-flex bg-[#23735b] px-3 py-1.5 rounded-full items-center gap-1">
-            <span className="text-[10px] font-semibold text-white/90">
-              Resultado no mês: {balance >= 0 ? '+' : ''}{formatCurrency(balance)}
+        <div className="mb-4">
+          <div className="inline-flex bg-[#23735b] px-3 py-1 rounded-full items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-white/95">
+              {paidCount} baixado(s) {pendingCount > 0 ? `· ${pendingCount} pendente(s)` : ''}
             </span>
           </div>
         </div>
@@ -181,7 +218,12 @@ export default function HomeClient({ transactions }: { transactions: Transaction
         transition={{ delay: 0.4 }}
         className="flex flex-col flex-1"
       >
-        <h2 className="text-lg font-bold text-foreground mb-3 px-1">Transações do Mês</h2>
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="text-lg font-bold text-foreground">Transações do Mês</h2>
+          <span className="text-xs text-muted-foreground font-semibold">
+            {filtered.length} registro(s)
+          </span>
+        </div>
 
         {filtered.length === 0 ? (
           <div className="bg-card rounded-2xl p-8 border border-border shadow-sm flex flex-col items-center justify-center text-center gap-3 flex-1 min-h-[200px]">
@@ -195,29 +237,97 @@ export default function HomeClient({ transactions }: { transactions: Transaction
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {filtered.map((t) => (
-              <div key={t.id} className="bg-card rounded-2xl p-4 border border-border shadow-sm flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    t.type === 'INCOME' ? 'bg-[#1db576]/10 text-[#1db576]' : 'bg-[#e74c4c]/10 text-[#e74c4c]'
-                  }`}>
-                    <span className="material-symbols-outlined text-[18px]">
-                      {t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward'}
-                    </span>
+            {filtered.map((t) => {
+              const isPaid = t.is_paid !== false
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setEditingTransaction(t)}
+                  className={`bg-card rounded-2xl p-3.5 border shadow-sm flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all ${
+                    !isPaid ? 'border-amber-400/40 bg-amber-50/20 dark:bg-amber-950/10' : 'border-border'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Botão de Dar Baixa */}
+                    <button
+                      type="button"
+                      title={isPaid ? 'Liquidado (toque para marcar pendente)' : 'Pendente (toque para dar baixa)'}
+                      onClick={(e) => handleTogglePaid(t, e)}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 ${
+                        isPaid
+                          ? t.type === 'INCOME'
+                            ? 'bg-[#1db576]/10 text-[#1db576]'
+                            : 'bg-[#e74c4c]/10 text-[#e74c4c]'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-base">
+                        {isPaid ? (t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward') : 'schedule'}
+                      </span>
+                    </button>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-semibold text-foreground truncate">{t.description}</p>
+                        {!isPaid && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
+                            Pendente
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}
+                        {t.notes ? ` · ${t.notes}` : ''}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{t.description}</p>
-                    <p className="text-[10px] text-muted-foreground">{categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}</p>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`font-bold text-sm ${t.type === 'INCOME' ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
+                      {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
+                    </span>
+
+                    {/* Ações Rápidas */}
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title="Editar lançamento"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingTransaction(t)
+                        }}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-sm">edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        title="Excluir lançamento"
+                        disabled={deletingId === t.id}
+                        onClick={(e) => handleDelete(t.id, e)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-950/50 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <span className={`font-bold text-sm ${t.type === 'INCOME' ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
-                  {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </motion.div>
+
+      {/* Modal de Edição & Baixa */}
+      <EditTransactionModal
+        transaction={editingTransaction}
+        isOpen={Boolean(editingTransaction)}
+        onClose={() => setEditingTransaction(null)}
+        onSuccess={() => {
+          setEditingTransaction(null)
+          router.refresh()
+        }}
+      />
     </main>
   )
 }

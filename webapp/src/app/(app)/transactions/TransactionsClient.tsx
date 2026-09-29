@@ -1,7 +1,10 @@
 'use client'
 
 import * as motion from "framer-motion/client"
+import { useRouter } from "next/navigation"
 import { useState, useMemo } from "react"
+import EditTransactionModal from '@/components/transactions/EditTransactionModal'
+import { deleteTransactionAction, togglePaidTransactionAction } from '@/app/actions/transactionActions'
 
 interface Transaction {
   id: string
@@ -10,6 +13,8 @@ interface Transaction {
   date: string
   type: 'INCOME' | 'EXPENSE'
   category_id: string
+  notes?: string
+  is_paid?: boolean
 }
 
 const MONTH_NAMES = [
@@ -27,6 +32,7 @@ const categoryLabel: Record<string, string> = {
   moradia: 'Moradia',
   salario: 'Salário',
   lazer: 'Lazer',
+  saude: 'Saúde & Farmácia',
   outros: 'Outros',
 }
 
@@ -36,16 +42,20 @@ const CATEGORY_COLORS: Record<string, string> = {
   moradia: 'bg-purple-500',
   salario: 'bg-green-500',
   lazer: 'bg-pink-500',
+  saude: 'bg-rose-500',
   outros: 'bg-gray-400',
 }
 
 export default function TransactionsClient({ transactions }: { transactions: Transaction[] }) {
+  const router = useRouter()
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [activeType, setActiveType] = useState('Todas')
   const [activeCategory, setActiveCategory] = useState('todas')
   const [search, setSearch] = useState('')
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -67,6 +77,8 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
     return byMonth.filter(t => {
       if (activeType === 'Receitas' && t.type !== 'INCOME') return false
       if (activeType === 'Despesas' && t.type !== 'EXPENSE') return false
+      if (activeType === 'Liquidados' && t.is_paid === false) return false
+      if (activeType === 'Pendentes' && t.is_paid !== false) return false
       if (activeCategory !== 'todas' && t.category_id !== activeCategory) return false
       if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
       return true
@@ -82,7 +94,31 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
     return ['todas', ...Array.from(seen)]
   }, [byMonth])
 
-  const types = ['Todas', 'Receitas', 'Despesas']
+  const types = ['Todas', 'Receitas', 'Despesas', 'Liquidados', 'Pendentes']
+
+  async function handleDelete(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    if (!confirm('Tem certeza que deseja excluir esta transação?')) return
+    setDeletingId(id)
+    const res = await deleteTransactionAction(id)
+    setDeletingId(null)
+    if (res?.error) {
+      alert('Erro ao excluir: ' + res.error)
+    } else {
+      router.refresh()
+    }
+  }
+
+  async function handleTogglePaid(t: Transaction, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    const newStatus = t.is_paid === false ? true : false
+    const res = await togglePaidTransactionAction(t.id, newStatus)
+    if (res?.error) {
+      alert('Erro ao alterar status: ' + res.error)
+    } else {
+      router.refresh()
+    }
+  }
 
   return (
     <main className="flex-1 flex flex-col p-4 max-w-md mx-auto w-full relative min-h-screen pb-24">
@@ -90,11 +126,11 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
       {/* Month Selector */}
       <div className="bg-card rounded-2xl p-2 mb-4 shadow-sm border border-border/50">
         <div className="flex items-center justify-between px-2 py-1">
-          <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted rounded-full">
+          <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted rounded-full transition-colors">
             <span className="material-symbols-outlined text-sm">arrow_back_ios_new</span>
           </button>
           <h1 className="text-sm font-bold text-foreground">{MONTH_NAMES[month]} {year}</h1>
-          <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted rounded-full">
+          <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted rounded-full transition-colors">
             <span className="material-symbols-outlined text-sm">arrow_forward_ios</span>
           </button>
         </div>
@@ -120,7 +156,7 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
             onClick={() => setActiveType(type)}
             className={`px-4 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
               activeType === type
-                ? 'bg-primary/10 text-primary border border-transparent'
+                ? 'bg-primary/10 text-primary border border-transparent font-bold'
                 : 'bg-transparent text-foreground/80 border border-border hover:bg-muted'
             }`}
           >
@@ -168,35 +204,98 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
         </motion.div>
       ) : (
         <div className="flex flex-col gap-2">
-          {filtered.map((t) => (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-card rounded-2xl p-4 border border-border shadow-sm flex items-center justify-between"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  t.type === 'INCOME' ? 'bg-[#1db576]/10 text-[#1db576]' : 'bg-[#e74c4c]/10 text-[#e74c4c]'
-                }`}>
-                  <span className="material-symbols-outlined text-[18px]">
-                    {t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward'}
+          {filtered.map((t) => {
+            const isPaid = t.is_paid !== false
+            return (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={() => setEditingTransaction(t)}
+                className={`bg-card rounded-2xl p-3.5 border shadow-sm flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all ${
+                  !isPaid ? 'border-amber-400/40 bg-amber-50/20 dark:bg-amber-950/10' : 'border-border'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* Botão de Dar Baixa */}
+                  <button
+                    type="button"
+                    title={isPaid ? 'Liquidado (toque para marcar pendente)' : 'Pendente (toque para dar baixa)'}
+                    onClick={(e) => handleTogglePaid(t, e)}
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 ${
+                      isPaid
+                        ? t.type === 'INCOME'
+                          ? 'bg-[#1db576]/10 text-[#1db576]'
+                          : 'bg-[#e74c4c]/10 text-[#e74c4c]'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-base">
+                      {isPaid ? (t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward') : 'schedule'}
+                    </span>
+                  </button>
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-foreground truncate">{t.description}</p>
+                      {!isPaid && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
+                          Pendente
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}
+                      {t.notes ? ` · ${t.notes}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`font-bold text-sm ${t.type === 'INCOME' ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
+                    {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
                   </span>
+
+                  {/* Ações de Edição e Exclusão */}
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      title="Editar lançamento"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingTransaction(t)
+                      }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-sm">edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Excluir lançamento"
+                      disabled={deletingId === t.id}
+                      onClick={(e) => handleDelete(t.id, e)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-950/50 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{t.description}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}
-                  </p>
-                </div>
-              </div>
-              <span className={`font-bold text-sm ${t.type === 'INCOME' ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
-                {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
-              </span>
-            </motion.div>
-          ))}
+              </motion.div>
+            )
+          })}
         </div>
       )}
+
+      {/* Modal de Edição & Baixa */}
+      <EditTransactionModal
+        transaction={editingTransaction}
+        isOpen={Boolean(editingTransaction)}
+        onClose={() => setEditingTransaction(null)}
+        onSuccess={() => {
+          setEditingTransaction(null)
+          router.refresh()
+        }}
+      />
     </main>
   )
 }

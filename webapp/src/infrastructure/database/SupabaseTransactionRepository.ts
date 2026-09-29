@@ -9,23 +9,39 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
     const data = transaction.toJSON();
     const supabase = await createClient();
     
-    // Tratando o mapeamento para o banco se necessário, por exemplo, extraindo installments para jsonb.
+    const insertPayload: Record<string, any> = {
+      id: data.id,
+      user_id: data.userId,
+      amount: data.amount,
+      description: data.description,
+      date: data.date.toISOString(),
+      category_id: data.categoryId,
+      type: data.type,
+    };
+
+    if (data.installments) {
+      insertPayload.installments = data.installments;
+    }
+
+    if (data.notes !== undefined) {
+      insertPayload.notes = data.notes;
+    }
+
+    if (data.isPaid !== undefined) {
+      insertPayload.is_paid = data.isPaid;
+    }
+
+    if (data.createdAt) {
+      insertPayload.created_at = data.createdAt.toISOString();
+    }
+
+    if (data.updatedAt) {
+      insertPayload.updated_at = data.updatedAt.toISOString();
+    }
+
     const { error } = await supabase
       .from(this.tableName)
-      .insert([
-        {
-          id: data.id,
-          user_id: data.userId,
-          amount: data.amount,
-          description: data.description,
-          date: data.date.toISOString(),
-          category_id: data.categoryId,
-          type: data.type,
-          installments: data.installments,
-          created_at: data.createdAt,
-          updated_at: data.updatedAt,
-        }
-      ]);
+      .insert([insertPayload]);
 
     if (error) {
       throw new Error(`Erro ao criar transação: ${error.message}`);
@@ -50,9 +66,11 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       date: new Date(data.date),
       categoryId: data.category_id,
       type: data.type,
+      notes: data.notes || '',
+      isPaid: data.is_paid !== undefined ? data.is_paid : true,
       installments: data.installments,
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at)
+      createdAt: data.created_at ? new Date(data.created_at) : new Date(data.date),
+      updatedAt: data.updated_at ? new Date(data.updated_at) : new Date(data.date)
     });
   }
 
@@ -78,9 +96,11 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
       date: new Date(row.date),
       categoryId: row.category_id,
       type: row.type,
+      notes: row.notes || '',
+      isPaid: row.is_paid !== undefined ? row.is_paid : true,
       installments: row.installments,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at)
+      createdAt: row.created_at ? new Date(row.created_at) : new Date(row.date),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(row.date)
     }));
   }
 
@@ -88,17 +108,21 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
     const data = transaction.toJSON();
     const supabase = await createClient();
     
+    const updatePayload: Record<string, any> = {
+      amount: data.amount,
+      description: data.description,
+      date: data.date.toISOString(),
+      category_id: data.categoryId,
+      type: data.type,
+      notes: data.notes || '',
+      is_paid: data.isPaid !== undefined ? data.isPaid : true,
+      installments: data.installments,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from(this.tableName)
-      .update({
-        amount: data.amount,
-        description: data.description,
-        date: data.date.toISOString(),
-        category_id: data.categoryId,
-        type: data.type,
-        installments: data.installments,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', data.id);
 
     if (error) {

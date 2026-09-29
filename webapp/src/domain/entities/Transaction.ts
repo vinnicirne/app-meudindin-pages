@@ -9,6 +9,8 @@ export interface TransactionProps {
   categoryId: string;
   type: TransactionType;
   isRecurring?: boolean;
+  notes?: string;
+  isPaid?: boolean;
   installments?: {
     current: number;
     total: number;
@@ -25,6 +27,8 @@ export class Transaction {
     this.props = {
       ...props,
       id: props.id || crypto.randomUUID(),
+      isPaid: props.isPaid !== undefined ? props.isPaid : true,
+      notes: props.notes || '',
       createdAt: props.createdAt || new Date(),
       updatedAt: props.updatedAt || new Date(),
     };
@@ -52,6 +56,8 @@ export class Transaction {
   get categoryId(): string { return this.props.categoryId; }
   get type(): TransactionType { return this.props.type; }
   get isRecurring(): boolean { return this.props.isRecurring || false; }
+  get notes(): string { return this.props.notes || ''; }
+  get isPaid(): boolean { return this.props.isPaid !== undefined ? this.props.isPaid : true; }
   get installments() { return this.props.installments; }
   get createdAt(): Date { return this.props.createdAt!; }
   get updatedAt(): Date { return this.props.updatedAt!; }
