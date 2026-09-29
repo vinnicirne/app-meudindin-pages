@@ -1,3 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -21,9 +23,12 @@ export default async function handler(req, res) {
         const userId = payment.external_reference;
         
         if (userId) {
+          const supabaseUrl = process.env.SUPABASE_URL || 'https://sua-url-do-supabase.supabase.co';
+          const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'sua-service-role-key';
+          const supabase = createClient(supabaseUrl, supabaseKey);
+
           // Atualiza status do usuário no banco para ativo
-          // Como não temos a estrutura da tabela, assumimos uma chamada RPC ou update
-          // await supabase.from('users').update({ plan_status: 'active' }).eq('id', userId);
+          await supabase.from('users').update({ plan_status: 'active' }).eq('id', userId);
           console.log(`✅ Pagamento aprovado! Usuário liberado: ${userId}`);
         }
       }
