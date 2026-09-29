@@ -29,7 +29,13 @@ function AddTransactionForm() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('alimentacao');
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
@@ -58,18 +64,26 @@ function AddTransactionForm() {
     setDescription(tag);
   }
 
+  function getLocalDateStr(d: Date = new Date()) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   function setQuickDate(offsetDays: number) {
     const d = new Date();
     d.setDate(d.getDate() - offsetDays);
-    setDate(d.toISOString().split('T')[0]);
+    setDate(getLocalDateStr(d));
   }
 
-  const isToday = date === new Date().toISOString().split('T')[0];
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = date === yesterday.toISOString().split('T')[0];
+  const isToday = date === getLocalDateStr(new Date());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const isYesterday = date === getLocalDateStr(yesterdayDate);
 
   const formattedDisplayDate = () => {
+    if (!date) return '';
     const [y, m, d] = date.split('-');
     return `${d}/${m}/${y}`;
   };
@@ -295,14 +309,14 @@ function AddTransactionForm() {
           <label className="text-xs font-bold text-gray-600 dark:text-muted-foreground">
             Data de Início
           </label>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setQuickDate(0)}
               className={`py-1.5 px-4 rounded-xl text-xs font-bold transition-all ${
                 isToday
                   ? 'bg-[#c6f6e5] text-[#0d7355] border border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
-                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground'
+                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground hover:bg-gray-200'
               }`}
             >
               Hoje
@@ -313,22 +327,37 @@ function AddTransactionForm() {
               className={`py-1.5 px-4 rounded-xl text-xs font-bold transition-all ${
                 isYesterday
                   ? 'bg-[#c6f6e5] text-[#0d7355] border border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
-                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground'
+                  : 'bg-[#f4f6f8] dark:bg-muted text-gray-600 dark:text-muted-foreground hover:bg-gray-200'
               }`}
             >
               Ontem
             </button>
 
-            <div className="relative flex items-center ml-1">
+            {/* Seletor de Data com Ícone e Clique Completo */}
+            <div className="relative inline-flex items-center">
+              <label 
+                htmlFor="transaction-date"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                  !isToday && !isYesterday
+                    ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
+                    : 'bg-[#f4f6f8] dark:bg-muted text-gray-700 dark:text-foreground border-transparent hover:bg-gray-200'
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm text-[#0d7355] dark:text-emerald-400">calendar_today</span>
+                <span>{formattedDisplayDate()}</span>
+              </label>
               <input
+                id="transaction-date"
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
+                onClick={e => {
+                  try {
+                    (e.target as any).showPicker?.();
+                  } catch {}
+                }}
                 className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
               />
-              <span className="text-xs font-bold text-[#0d7355] dark:text-emerald-400">
-                {formattedDisplayDate()}
-              </span>
             </div>
           </div>
         </div>
