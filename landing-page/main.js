@@ -24,39 +24,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const buyButtons = document.querySelectorAll('.buy-button');
     
     buyButtons.forEach(button => {
-        button.addEventListener('click', async (e) => {
+        button.addEventListener('click', (e) => {
             e.preventDefault();
-            
-            // Alterar texto do botão para loading opcionalmente
-            const originalHtml = button.innerHTML;
-            button.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">refresh</span> Processando...';
-            button.style.pointerEvents = 'none';
-
-            try {
-                // Chama nosso backend Serverless (Vercel)
-                const response = await fetch('/api/create_preference', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
-                });
-                
-                const data = await response.json();
-                
-                if (data.init_point) {
-                    // Redireciona para o Checkout Pro do Mercado Pago
-                    window.location.href = data.init_point;
-                } else {
-                    alert('Erro ao gerar pagamento. Tente novamente.');
-                    button.innerHTML = originalHtml;
-                    button.style.pointerEvents = 'auto';
-                }
-            } catch (error) {
-                console.error('Erro:', error);
-                alert('Erro ao conectar com o servidor. Tente novamente.');
-                button.innerHTML = originalHtml;
-                button.style.pointerEvents = 'auto';
-            }
+            // Redireciona para a página de cadastro em vez de ir direto pro pagamento
+            window.location.href = 'cadastro.html';
         });
     });
 });
