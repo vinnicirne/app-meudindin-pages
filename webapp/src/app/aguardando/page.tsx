@@ -8,7 +8,17 @@ import Link from 'next/link'
 
 type WaitState = 'pending' | 'active' | 'error'
 
-export default function AguardandoPage() {
+import { Suspense } from 'react'
+
+export default function AguardandoPageWrapper() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-background flex items-center justify-center"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></main>}>
+      <AguardandoPage />
+    </Suspense>
+  )
+}
+
+function AguardandoPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [waitState, setWaitState] = useState<WaitState>('pending')
