@@ -10,10 +10,10 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
     const supabase = await createClient();
     
     const insertPayload: Record<string, any> = {
-      id: data.id,
       user_id: data.userId,
       amount: data.amount,
       description: data.description,
+      title: data.description,
       date: data.date.toISOString(),
       category_id: data.categoryId,
       type: data.type,
@@ -59,18 +59,18 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
     if (error || !data) return null;
 
     return new Transaction({
-      id: data.id,
+      id: String(data.id),
       userId: data.user_id,
       amount: data.amount,
-      description: data.description,
-      date: new Date(data.date),
+      description: data.description || data.title || '',
+      date: new Date(data.date || data.timestamp || Date.now()),
       categoryId: data.category_id,
       type: data.type,
       notes: data.notes || '',
       isPaid: data.is_paid !== undefined ? data.is_paid : true,
       installments: data.installments,
-      createdAt: data.created_at ? new Date(data.created_at) : new Date(data.date),
-      updatedAt: data.updated_at ? new Date(data.updated_at) : new Date(data.date)
+      createdAt: data.created_at ? new Date(data.created_at) : new Date(data.date || Date.now()),
+      updatedAt: data.updated_at ? new Date(data.updated_at) : new Date(data.date || Date.now())
     });
   }
 
@@ -89,11 +89,11 @@ export class SupabaseTransactionRepository implements ITransactionRepository {
     }
 
     return (data || []).map(row => new Transaction({
-      id: row.id,
+      id: String(row.id),
       userId: row.user_id,
       amount: row.amount,
-      description: row.description,
-      date: new Date(row.date),
+      description: row.description || row.title || '',
+      date: new Date(row.date || row.timestamp || Date.now()),
       categoryId: row.category_id,
       type: row.type,
       notes: row.notes || '',
