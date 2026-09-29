@@ -333,30 +333,21 @@ function AddTransactionForm() {
               Ontem
             </button>
 
-            {/* Seletor de Data com Ícone e Clique Completo */}
-            <div className="relative inline-flex items-center">
-              <label 
-                htmlFor="transaction-date"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                  !isToday && !isYesterday
-                    ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
-                    : 'bg-[#f4f6f8] dark:bg-muted text-gray-700 dark:text-foreground border-transparent hover:bg-gray-200'
-                }`}
-              >
-                <span className="material-symbols-outlined text-sm text-[#0d7355] dark:text-emerald-400">calendar_today</span>
-                <span>{formattedDisplayDate()}</span>
-              </label>
+            {/* Seletor de Data Direto e Confiável */}
+            <div className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              !isToday && !isYesterday
+                ? 'bg-[#c6f6e5] text-[#0d7355] border-[#9ae6b4] dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'bg-[#f4f6f8] dark:bg-muted text-gray-700 dark:text-foreground border-transparent hover:bg-gray-200'
+            }`}>
+              <span className="material-symbols-outlined text-sm text-[#0d7355] dark:text-emerald-400 pointer-events-none">
+                calendar_today
+              </span>
               <input
                 id="transaction-date"
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                onClick={e => {
-                  try {
-                    (e.target as any).showPicker?.();
-                  } catch {}
-                }}
-                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+                className="bg-transparent text-xs font-bold text-gray-800 dark:text-foreground cursor-pointer outline-none border-none p-0 focus:ring-0"
               />
             </div>
           </div>
