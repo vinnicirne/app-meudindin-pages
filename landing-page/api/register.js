@@ -60,6 +60,9 @@ export default async function handler(req, res) {
     res.status(200).json({ id: response.id, init_point: response.init_point });
   } catch (error) {
     console.error("Register Error:", error);
-    res.status(500).json({ error: "Failed to register user and create preference" });
+    res.status(500).json({ 
+      error: "Failed to register user and create preference", 
+      details: error.message || String(error)
+    });
   }
 }
