@@ -27,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
         button.addEventListener('click', (e) => {
             e.preventDefault();
             // Redireciona para a página de cadastro do webapp
-            window.location.href = 'https://meudindin26.vercel.app/cadastro';
+            window.location.href = 'https://meudindinapp.vercel.app/cadastro';
         });
     });
 });
