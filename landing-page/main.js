@@ -20,14 +20,22 @@ document.addEventListener("DOMContentLoaded", () => {
         observer.observe(card);
     });
 
-    // Configura√ß√£o dos bot√µes de compra Mercado Pago
+        // ConfiguraÁ„o dos botıes de compra Mercado Pago
     const buyButtons = document.querySelectorAll('.buy-button');
+    
+    // Captura o par‚metro de afiliado se existir
+    const urlParams = new URLSearchParams(window.location.search);
+    const refParam = urlParams.get('ref');
     
     buyButtons.forEach(button => {
         button.addEventListener('click', (e) => {
             e.preventDefault();
-            // Redireciona para a p√°gina de cadastro do webapp
-            window.location.href = 'https://meudindinapp.vercel.app/cadastro';
+            // Redireciona para a p·gina de cadastro do webapp mantendo o ref
+            const targetUrl = new URL('https://meudindinapp.vercel.app/cadastro');
+            if (refParam) {
+                targetUrl.searchParams.set('ref', refParam);
+            }
+            window.location.href = targetUrl.toString();
         });
     });
 });
