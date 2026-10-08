@@ -1,4 +1,4 @@
-﻿-- ==========================================
+-- ==========================================
 -- 1. Tabela: vaults (As Caixinhas)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS public.vaults (
@@ -16,19 +16,23 @@ CREATE TABLE IF NOT EXISTS public.vaults (
 ALTER TABLE public.vaults ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de segurança (RLS) para vaults
+DROP POLICY IF EXISTS "Usuários podem ver suas próprias caixinhas" ON public.vaults;
 CREATE POLICY "Usuários podem ver suas próprias caixinhas" 
   ON public.vaults FOR SELECT 
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Usuários podem criar suas próprias caixinhas" ON public.vaults;
 CREATE POLICY "Usuários podem criar suas próprias caixinhas" 
   ON public.vaults FOR INSERT 
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Usuários podem atualizar suas próprias caixinhas" ON public.vaults;
 CREATE POLICY "Usuários podem atualizar suas próprias caixinhas" 
   ON public.vaults FOR UPDATE 
   USING (auth.uid() = user_id) 
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Usuários podem deletar suas próprias caixinhas" ON public.vaults;
 CREATE POLICY "Usuários podem deletar suas próprias caixinhas" 
   ON public.vaults FOR DELETE 
   USING (auth.uid() = user_id);
@@ -51,14 +55,17 @@ CREATE TABLE IF NOT EXISTS public.vault_transactions (
 ALTER TABLE public.vault_transactions ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de segurança (RLS) para vault_transactions
+DROP POLICY IF EXISTS "Usuários podem ver movimentações de suas caixinhas" ON public.vault_transactions;
 CREATE POLICY "Usuários podem ver movimentações de suas caixinhas" 
   ON public.vault_transactions FOR SELECT 
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Usuários podem inserir movimentações" ON public.vault_transactions;
 CREATE POLICY "Usuários podem inserir movimentações" 
   ON public.vault_transactions FOR INSERT 
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Usuários podem deletar movimentações" ON public.vault_transactions;
 CREATE POLICY "Usuários podem deletar movimentações" 
   ON public.vault_transactions FOR DELETE 
   USING (auth.uid() = user_id);
@@ -72,6 +79,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_vault_updated_at ON public.vault_transactions;
 CREATE TRIGGER trigger_update_vault_updated_at
 AFTER INSERT OR UPDATE OR DELETE ON public.vault_transactions
 FOR EACH ROW EXECUTE FUNCTION update_vault_updated_at();
@@ -85,6 +93,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS set_updated_at_vaults ON public.vaults;
 CREATE TRIGGER set_updated_at_vaults
 BEFORE UPDATE ON public.vaults
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
