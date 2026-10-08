@@ -1,12 +1,16 @@
-'use client'
+﻿'use client'
 
-import * as motion from "framer-motion/client"
-import { useRouter } from "next/navigation"
-import { useState, useMemo } from "react"
+import { motion } from "framer-motion"
+import { useState, useMemo, useDeferredValue } from "react"
 import EditTransactionModal from '@/components/transactions/EditTransactionModal'
 import { deleteTransactionAction, togglePaidTransactionAction } from '@/app/actions/transactionActions'
 import { toast } from 'react-hot-toast'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { useDashboardData } from '@/hooks/useDashboardData'
+import { useQueryClient } from '@tanstack/react-query'
+import { parseDateParts, formatDateBR, dateKey } from '@/lib/dateUtils'
+import { buildCategoryMap, buildCategoryColorsMap } from '@/lib/categoryUtils'
 
 interface Transaction {
   id: string
@@ -28,37 +32,28 @@ function formatCurrency(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-const categoryLabel: Record<string, string> = {
-  alimentacao: 'Alimentação',
-  transporte: 'Transporte',
-  moradia: 'Moradia',
-  salario: 'Salário',
-  lazer: 'Lazer',
-  saude: 'Saúde & Farmácia',
-  outros: 'Outros',
-}
+export default function TransactionsClient() {
+  const { data, isLoading } = useDashboardData()
+  const transactions = data?.transactions || []
+  const dbCategories = data?.categories || []
 
-const CATEGORY_COLORS: Record<string, string> = {
-  alimentacao: 'bg-orange-500',
-  transporte: 'bg-blue-500',
-  moradia: 'bg-purple-500',
-  salario: 'bg-green-500',
-  lazer: 'bg-pink-500',
-  saude: 'bg-rose-500',
-  outros: 'bg-gray-400',
-}
-
-export default function TransactionsClient({ transactions }: { transactions: Transaction[] }) {
-  const router = useRouter()
-  const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const queryClient = useQueryClient()
+  const [year, setYear] = useState(() => new Date().getFullYear())
+  const [month, setMonth] = useState(() => new Date().getMonth())
   const [activeType, setActiveType] = useState('Todas')
   const [activeCategory, setActiveCategory] = useState('todas')
+  
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
+
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null)
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false)
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -70,32 +65,51 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
     else setMonth(m => m + 1)
   }
 
-  const byMonth = useMemo(() =>
-    transactions.filter(t => {
-      const d = new Date(t.date)
-      return d.getFullYear() === year && d.getMonth() === month
-    }), [transactions, year, month])
+  const categoryMap = useMemo(() => buildCategoryMap(dbCategories), [dbCategories])
+  const categoryColorsMap = useMemo(() => buildCategoryColorsMap(dbCategories), [dbCategories])
 
-  const filtered = useMemo(() => {
-    return byMonth.filter(t => {
-      if (activeType === 'Receitas' && t.type !== 'INCOME') return false
-      if (activeType === 'Despesas' && t.type !== 'EXPENSE') return false
-      if (activeType === 'Liquidados' && t.is_paid === false) return false
-      if (activeType === 'Pendentes' && t.is_paid !== false) return false
-      if (activeCategory !== 'todas' && t.category_id !== activeCategory) return false
-      if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false
-      return true
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  }, [byMonth, activeType, activeCategory, search])
+  const { filtered, totalIncome, totalExpense, liquid } = useMemo(() => {
+    const list = transactions
+      .filter(t => {
+        const parts = parseDateParts(t.date)
+        if (!parts || parts.year !== year || parts.month !== month) return false
 
-  const totalIncome = filtered.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0)
-  const totalExpense = filtered.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
-  const liquid = totalIncome - totalExpense
+        if (activeType === 'Receitas' && t.type !== 'INCOME') return false
+        if (activeType === 'Despesas' && t.type !== 'EXPENSE') return false
+        if (activeType === 'Liquidados' && t.is_paid !== true) return false
+        if (activeType === 'Pendentes' && t.is_paid === true) return false
+        if (activeCategory !== 'todas' && t.category_id !== activeCategory) return false
+        
+        if (deferredSearch) {
+          const q = deferredSearch.toLowerCase()
+          if (!t.description.toLowerCase().includes(q)) return false
+        }
+        return true
+      })
+      .sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)))
+
+    let income = 0
+    let expense = 0
+    for (const t of list) {
+      if (t.type === 'INCOME') income += Number(t.amount || 0)
+      else expense += Number(t.amount || 0)
+    }
+
+    return {
+      filtered: list,
+      totalIncome: income,
+      totalExpense: expense,
+      liquid: income - expense,
+    }
+  }, [transactions, year, month, activeType, activeCategory, deferredSearch])
 
   const categories = useMemo(() => {
-    const seen = new Set(byMonth.map(t => t.category_id))
+    const seen = new Set(transactions.filter(t => {
+      const p = parseDateParts(t.date); 
+      return p && p.year === year && p.month === month
+    }).map(t => t.category_id))
     return ['todas', ...Array.from(seen)]
-  }, [byMonth])
+  }, [transactions, year, month])
 
   const types = ['Todas', 'Receitas', 'Despesas', 'Liquidados', 'Pendentes']
 
@@ -109,32 +123,132 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
     const id = transactionToDelete
     setTransactionToDelete(null)
     setDeletingId(id)
+    
     const res = await deleteTransactionAction(id)
     setDeletingId(null)
+    
     if (res?.error) {
       toast.error('Erro ao excluir: ' + res.error)
     } else {
       toast.success('Lançamento excluído!')
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     }
   }
 
   async function handleTogglePaid(t: Transaction, e?: React.MouseEvent) {
     e?.stopPropagation()
-    const newStatus = t.is_paid === false ? true : false
+    const newStatus = !(t.is_paid === true)
+    
+    queryClient.setQueryData(['dashboardData'], (old: any) => {
+      if (!old?.transactions) return old
+      return {
+        ...old,
+        transactions: old.transactions.map((tx: Transaction) =>
+          tx.id === t.id ? { ...tx, is_paid: newStatus } : tx
+        ),
+      }
+    })
+
     const res = await togglePaidTransactionAction(t.id, newStatus)
     if (res?.error) {
       toast.error('Erro ao alterar status: ' + res.error)
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     } else {
-      toast.success(newStatus ? 'Marcado como pago!' : 'Marcado como pendente!')
-      router.refresh()
+      toast.success(newStatus ? (t.type === 'INCOME' ? 'Marcado como recebido!' : 'Marcado como pago!') : 'Marcado como pendente!')
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     }
   }
+
+  function handleToggleSelection(id: string) {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  function handleExportCSV() {
+    if (filtered.length === 0) {
+      toast.error('Nenhum dado para exportar neste mês.')
+      return
+    }
+
+    const headers = ['Data', 'Descricao', 'Categoria', 'Tipo', 'Valor', 'Status']
+    const rows = filtered.map(t => {
+      const data = formatDateBR(t.date)
+      const desc = `"${t.description.replace(/"/g, '""')}"`
+      const cat = categoryMap[t.category_id] || t.category_id
+      const type = t.type === 'INCOME' ? 'Receita' : 'Despesa'
+      const val = t.amount.toString().replace('.', ',')
+      const status = t.is_paid === true ? 'Pago/Recebido' : 'Pendente'
+      return [data, desc, cat, type, val, status].join(';')
+    })
+
+    const csvContent = [headers.join(';'), ...rows].join('\n')
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `extrato_${MONTH_NAMES[month]}_${year}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    toast.success('Arquivo CSV gerado com sucesso!')
+  }
+
+  function handleSelectAll() {
+    if (selectedIds.length === filtered.length) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(filtered.map(t => t.id))
+    }
+  }
+
+  async function handleBulkToggle(markAsPaid: boolean) {
+    if (selectedIds.length === 0) return
+    setIsBulkProcessing(true)
+    const ids = [...selectedIds]
+    
+    const results = await Promise.all(ids.map(id => togglePaidTransactionAction(id, markAsPaid)))
+    const errors = results.filter(r => r?.error)
+
+    setIsBulkProcessing(false)
+    setSelectedIds([])
+    setIsSelecting(false)
+    
+    if (errors.length > 0) {
+      toast.error(`${errors.length} alteração(ões) falharam`)
+    } else {
+      toast.success(markAsPaid ? 'Transações marcadas como baixadas!' : 'Transações marcadas como pendentes!')
+    }
+    queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.length === 0) return
+    setIsBulkProcessing(true)
+    const ids = [...selectedIds]
+
+    const results = await Promise.all(ids.map(id => deleteTransactionAction(id)))
+    const errors = results.filter(r => r?.error)
+
+    setIsBulkProcessing(false)
+    setSelectedIds([])
+    setIsSelecting(false)
+    setBulkDeleteConfirm(false)
+
+    if (errors.length > 0) {
+      toast.error(`${errors.length} exclusão(ões) falharam`)
+    } else {
+      toast.success(`${ids.length} lançamento(s) excluído(s)!`)
+    }
+    queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
+  }
+
+  if (isLoading) return <div className="flex-1 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>
 
   return (
     <main className="flex-1 flex flex-col p-4 max-w-md mx-auto w-full relative min-h-screen pb-24">
 
-      {/* Month Selector */}
       <div className="bg-card rounded-2xl p-2 mb-4 shadow-sm border border-border/50">
         <div className="flex items-center justify-between px-2 py-1">
           <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted rounded-full transition-colors">
@@ -147,28 +261,84 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
         </div>
       </div>
 
-      {/* Search Input */}
-      <div className="relative mb-4">
-        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xl">search</span>
-        <input
-          type="text"
-          placeholder="Pesquisar por descrição..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full bg-transparent border border-border rounded-xl pl-10 pr-4 py-3 text-sm text-foreground focus:outline-none focus:border-primary/50"
-        />
+      <div className="flex gap-2 mb-4">
+        <div className="relative flex-1">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xl">search</span>
+          <input
+            type="text"
+            placeholder="Pesquisar..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full bg-transparent border border-border rounded-xl pl-10 pr-4 py-3 text-sm text-foreground focus:outline-none focus:border-primary/50"
+          />
+        </div>
+        {!isSelecting && (
+          <button
+            onClick={handleExportCSV}
+            title="Exportar para Excel (CSV)"
+            className="flex items-center justify-center w-12 h-[46px] rounded-xl border border-border bg-card text-foreground shadow-sm hover:bg-muted transition-colors shrink-0"
+          >
+            <span className="material-symbols-outlined text-lg">download</span>
+          </button>
+        )}
       </div>
 
-      {/* Type Filters */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {types.map((type) => (
+      {isSelecting && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-card rounded-xl p-3 mb-4 flex flex-col gap-3 shadow-sm border border-primary/20"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold">{selectedIds.length} selecionados</span>
+            <button onClick={() => setIsSelecting(false)} className="text-sm text-muted-foreground hover:text-foreground">
+              Cancelar
+            </button>
+          </div>
+          
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <button onClick={handleSelectAll} className="text-xs font-medium text-primary bg-primary/10 px-3 py-1.5 rounded-lg">
+              {selectedIds.length === filtered.length ? 'Desmarcar todos' : 'Selecionar todos'}
+            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => handleBulkToggle(true)}
+                disabled={selectedIds.length === 0 || isBulkProcessing}
+                className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-[#1db576] hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Marcar como recebido/pago"
+              >
+                <span className="material-symbols-outlined text-sm">check_circle</span>
+              </button>
+              <button 
+                onClick={() => handleBulkToggle(false)}
+                disabled={selectedIds.length === 0 || isBulkProcessing}
+                className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-amber-500 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Marcar como pendente"
+              >
+                <span className="material-symbols-outlined text-sm">schedule</span>
+              </button>
+              <button 
+                onClick={() => setBulkDeleteConfirm(true)}
+                disabled={selectedIds.length === 0 || isBulkProcessing}
+                className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-[#e74c4c] hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Excluir"
+              >
+                <span className="material-symbols-outlined text-sm">delete</span>
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+        {types.map(type => (
           <button
             key={type}
             onClick={() => setActiveType(type)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              activeType === type
-                ? 'bg-primary/10 text-primary border border-transparent font-bold'
-                : 'bg-transparent text-foreground/80 border border-border hover:bg-muted'
+            className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              activeType === type 
+                ? 'bg-primary text-primary-foreground' 
+                : 'bg-card text-muted-foreground border border-border/50 hover:bg-muted'
             }`}
           >
             {type}
@@ -176,145 +346,159 @@ export default function TransactionsClient({ transactions }: { transactions: Tra
         ))}
       </div>
 
-      {/* Category Filters */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`px-3 py-1 rounded-full text-[10px] font-medium whitespace-nowrap flex items-center gap-1 transition-colors ${
-              activeCategory === cat
-                ? 'bg-primary/10 text-primary border border-transparent font-bold'
-                : 'bg-transparent text-foreground/80 border border-transparent hover:bg-muted'
-            }`}
-          >
-            {cat !== 'todas' && <span className={`w-2 h-2 rounded-full ${CATEGORY_COLORS[cat] || 'bg-gray-400'}`} />}
-            {cat === 'todas' ? 'Todas Categorias' : (categoryLabel[cat] || cat)}
-          </button>
-        ))}
-      </div>
-
-      {/* Summary Row */}
-      <div className="flex justify-between items-center mb-4 px-1">
-        <span className="text-[10px] text-muted-foreground font-medium">{filtered.length} registro(s)</span>
-        <span className={`text-[10px] font-bold ${liquid >= 0 ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
-          Líquido: {formatCurrency(liquid)}
-        </span>
-      </div>
-
-      {/* Transactions List */}
-      {filtered.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center justify-center text-center flex-1"
-        >
-          <span className="material-symbols-outlined text-[48px] text-muted-foreground/40 mb-4">filter_list</span>
-          <h3 className="font-bold text-sm text-foreground mb-1">Nenhuma transação encontrada</h3>
-          <p className="text-xs text-muted-foreground">Tente alterar os filtros ou o mês selecionado</p>
-        </motion.div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filtered.map((t) => {
-            const isPaid = t.is_paid !== false
-            return (
-              <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                onClick={() => setEditingTransaction(t)}
-                className={`bg-card rounded-2xl p-3.5 border shadow-sm flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all ${
-                  !isPaid ? 'border-amber-400/40 bg-amber-50/20 dark:bg-amber-950/10' : 'border-border'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* Botão de Dar Baixa */}
-                  <button
-                    type="button"
-                    title={isPaid ? 'Liquidado (toque para marcar pendente)' : 'Pendente (toque para dar baixa)'}
-                    onClick={(e) => handleTogglePaid(t, e)}
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 ${
-                      isPaid
-                        ? t.type === 'INCOME'
-                          ? 'bg-[#1db576]/10 text-[#1db576]'
-                          : 'bg-[#e74c4c]/10 text-[#e74c4c]'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-base">
-                      {isPaid ? (t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward') : 'schedule'}
-                    </span>
-                  </button>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold text-foreground truncate">{t.description}</p>
-                      {!isPaid && (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
-                          Pendente
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      {categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}
-                      {t.notes ? ` · ${t.notes}` : ''}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className={`font-bold text-sm ${t.type === 'INCOME' ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
-                    {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
-                  </span>
-
-                  {/* Ações de Edição e Exclusão */}
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      title="Editar lançamento"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditingTransaction(t)
-                      }}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-sm">edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      title="Excluir lançamento"
-                      disabled={deletingId === t.id}
-                      onClick={(e) => handleDelete(t.id, e)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-950/50 transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-sm">delete</span>
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )
-          })}
+      {categories.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-border/50">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                activeCategory === cat 
+                  ? 'bg-secondary text-secondary-foreground' 
+                  : 'bg-card text-muted-foreground border border-border/50 hover:bg-muted'
+              }`}
+            >
+              {cat !== 'todas' && (
+                <span className={`w-2 h-2 rounded-full ${categoryColorsMap[cat] || 'bg-gray-400'}`}></span>
+              )}
+              {cat === 'todas' ? 'Todas Categorias' : (categoryMap[cat] || cat)}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Modal de Edição & Baixa */}
-      <EditTransactionModal
-        transaction={editingTransaction}
-        isOpen={Boolean(editingTransaction)}
-        onClose={() => setEditingTransaction(null)}
-        onSuccess={() => {
-          setEditingTransaction(null)
-          router.refresh()
-        }}
-      />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        <div className="bg-card border border-border/50 rounded-xl p-3 shadow-sm">
+          <p className="text-[10px] text-muted-foreground font-medium mb-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-xs">arrow_upward</span> Entradas
+          </p>
+          <p className="text-sm font-bold text-[#1db576]">{formatCurrency(totalIncome)}</p>
+        </div>
+        <div className="bg-card border border-border/50 rounded-xl p-3 shadow-sm">
+          <p className="text-[10px] text-muted-foreground font-medium mb-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-xs">arrow_downward</span> Saídas
+          </p>
+          <p className="text-sm font-bold text-[#e74c4c]">{formatCurrency(totalExpense)}</p>
+        </div>
+        <div className="bg-card border border-border/50 rounded-xl p-3 shadow-sm col-span-2 sm:col-span-1">
+          <p className="text-[10px] text-muted-foreground font-medium mb-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-xs">account_balance_wallet</span> Saldo Líquido
+          </p>
+          <p className={`text-sm font-bold ${liquid >= 0 ? 'text-[#1db576]' : 'text-[#e74c4c]'}`}>
+            {formatCurrency(liquid)}
+          </p>
+        </div>
+      </div>
 
-      <ConfirmModal 
-        isOpen={Boolean(transactionToDelete)}
-        title="Excluir Lançamento"
-        description="Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita."
+      <div className="flex justify-between items-center mb-4 px-1">
+        <h2 className="text-sm font-bold text-foreground">
+          {filtered.length} {filtered.length === 1 ? 'lançamento' : 'lançamentos'}
+        </h2>
+        <button 
+          onClick={() => setIsSelecting(!isSelecting)}
+          className={`text-xs font-medium px-2 py-1 rounded-md transition-colors ${isSelecting ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10'}`}
+        >
+          {isSelecting ? 'Concluído' : 'Selecionar'}
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {filtered.length === 0 ? (
+          <EmptyState />
+        ) : (
+          filtered.map((t) => {
+            const isPaid = t.is_paid === true
+            const isIncome = t.type === 'INCOME'
+            const catLabel = categoryMap[t.category_id] || t.category_id
+            const catColor = categoryColorsMap[t.category_id] || 'bg-gray-400'
+            const isSelected = selectedIds.includes(t.id)
+
+            return (
+              <div
+                key={t.id}
+                onClick={() => isSelecting ? handleToggleSelection(t.id) : setEditingTransaction(t as any)}
+                className={`relative bg-card rounded-2xl shadow-sm border overflow-hidden transition-all ${
+                  isSelecting 
+                    ? isSelected 
+                      ? 'border-primary cursor-pointer' 
+                      : 'border-border/50 cursor-pointer hover:border-primary/50'
+                    : 'border-border/50 cursor-pointer hover:border-border'
+                }`}
+              >
+                <div className="p-4 flex items-center gap-4 bg-card relative z-10">
+                  {isSelecting && (
+                    <div className="flex-shrink-0 mr-1">
+                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary text-white' : 'border-border'}`}>
+                        {isSelected && <span className="material-symbols-outlined text-[12px] font-bold">check</span>}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className={`w-10 h-10 rounded-full flex flex-shrink-0 items-center justify-center text-white ${catColor}`}>
+                    <span className="material-symbols-outlined text-lg">
+                      {isIncome ? 'arrow_downward' : 'arrow_upward'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-bold text-sm text-foreground truncate ${!isPaid && 'opacity-60'}`}>
+                      {t.description}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {catLabel} • {formatDateBR(t.date)}
+                    </p>
+                  </div>
+
+                  <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
+                    <p className={`font-bold text-sm ${!isPaid ? 'text-muted-foreground' : (isIncome ? 'text-[#1db576]' : 'text-foreground')}`}>
+                      {isIncome ? '+' : '-'}{formatCurrency(t.amount)}
+                    </p>
+                    
+                    {!isSelecting && (
+                      <button
+                        onClick={(e) => handleTogglePaid(t as any, e)}
+                        disabled={deletingId === t.id}
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition-colors ${
+                          isPaid 
+                            ? 'bg-[#1db576]/10 text-[#1db576] border-[#1db576]/20' 
+                            : 'bg-muted text-muted-foreground border-border hover:bg-muted/80'
+                        }`}
+                      >
+                        {isPaid ? (isIncome ? 'Recebido' : 'Pago') : 'Pendente'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      <ConfirmModal
+        isOpen={!!transactionToDelete}
+        title="Excluir lançamento"
+        description="Tem certeza? Esta ação não pode ser desfeita."
         onConfirm={confirmDelete}
         onCancel={() => setTransactionToDelete(null)}
       />
+
+      <ConfirmModal
+        isOpen={bulkDeleteConfirm}
+        title="Excluir em massa"
+        description={`Tem certeza que deseja excluir ${selectedIds.length} lançamento(s)? Esta ação não pode ser desfeita.`}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkDeleteConfirm(false)}
+      />
+
+      {editingTransaction && (
+        <EditTransactionModal
+          transaction={editingTransaction as any}
+          isOpen={!!editingTransaction}
+          onClose={() => setEditingTransaction(null)}
+          onSuccess={() => queryClient.invalidateQueries({ queryKey: ['dashboardData'] })}
+        />
+      )}
     </main>
   )
 }

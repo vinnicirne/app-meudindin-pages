@@ -1,6 +1,6 @@
 'use client'
 
-import * as motion from 'framer-motion/client'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
@@ -24,6 +24,31 @@ function AguardandoPage() {
   const [waitState, setWaitState] = useState<WaitState>('pending')
   const [dots, setDots] = useState('.')
   const statusParam = searchParams.get('status')
+  const paymentId = searchParams.get('payment_id') || searchParams.get('collection_id')
+
+  // Se houver payment_id nos parâmetros da URL (retorno do Mercado Pago), valida ativamente
+  useEffect(() => {
+    if (!paymentId) return
+
+    const verifyDirectly = async () => {
+      try {
+        const res = await fetch('/api/verify-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentId }),
+        })
+        const data = await res.json()
+        if (data.status === 'approved' || data.success) {
+          setWaitState('active')
+          setTimeout(() => router.replace('/'), 2000)
+        }
+      } catch (err) {
+        console.warn('[Aguardando] Falha na verificação direta de pagamento:', err)
+      }
+    }
+
+    verifyDirectly()
+  }, [paymentId, router])
 
   // Animação dos pontinhos "Verificando..."
   useEffect(() => {
@@ -196,7 +221,7 @@ function AguardandoPage() {
             <div className="flex items-start gap-2">
               <span className="material-symbols-outlined text-warning text-lg shrink-0 mt-0.5">info</span>
               <p className="text-xs text-foreground/80 leading-relaxed font-medium">
-                Boleto ou Pix pode levar até 3 dias úteis para ser confirmado. Você receberá um e-mail quando o acesso for liberado.
+                Boleto ou Pix pode levar até 3 dias úteis para ser confirmado. Vocêê receberá um e-mail quando o acesso for liberado.
               </p>
             </div>
           </motion.div>

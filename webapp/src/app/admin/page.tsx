@@ -1,86 +1,84 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/utils/supabase/server'
-import { AdminOverviewDashboard, OverviewMetrics, UserMetric } from './AdminOverviewDashboard'
+﻿import { requireAdmin, createAdminClient } from '@/utils/admin'
+import { AdminOverviewDashboard, OverviewMetrics, UserMetric, PlanMetric } from './AdminOverviewDashboard'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export default async function AdminPage() {
-  let supabase
-  try {
-    supabase = await createClient()
-  } catch {
+  await requireAdmin()
+
+  const adminClient = createAdminClient()
+  if (!adminClient) {
     return (
-      <main className="flex-1 p-6 flex items-center justify-center">
-        <div className="text-center space-y-4 max-w-md">
-          <h1 className="text-2xl font-bold text-destructive">Configuração Incompleta</h1>
-          <p className="text-muted-foreground">
-            As variáveis de ambiente do Supabase não foram encontradas.
-          </p>
+      <main className="p-6">
+        <div className="bg-destructive/10 text-destructive p-4 rounded-xl font-bold">
+          SUPABASE_SERVICE_ROLE_KEY não configurada. Impossível carregar métricas.
         </div>
       </main>
     )
   }
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
-  const { data: userData } = await supabase
+  // 1. Buscar métricas totais via queries COUNT
+  const [{ count: totalUsers }, { count: activeUsers }, { count: pendingUsers }] = await Promise.all([
+    adminClient.from('users').select('*', { count: 'exact', head: true }),
+    adminClient.from('users').select('*', { count: 'exact', head: true }).eq('plan_status', 'active'),
+    adminClient.from('users').select('*', { count: 'exact', head: true }).in('plan_status', ['pending', 'trial'])
+  ])
+
+  // 2. Buscar dados necessários
+  const [plansRes, recentUsersRes] = await Promise.all([
+    adminClient.from('plans').select('id, name, price, interval').eq('is_active', true),
+    adminClient.from('users')
+      .select('id, name, email, plan_status, is_affiliate, affiliate_code, created_at')
+      .order('created_at', { ascending: false })
+      .limit(30)
+  ])
+
+  // Contagem de afiliados 
+  // Em vez de puxar toda base, contamos no server via query ou estimamos. 
+  // Para precisão total, query head com is_affiliate = true:
+  const { count: affiliateUsersCount } = await adminClient
     .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+    .select('*', { count: 'exact', head: true })
+    .eq('is_affiliate', true)
 
-  if (userData?.role !== 'admin') {
-    redirect('/')
+  const totUsers = totalUsers || 0
+  const actUsers = activeUsers || 0
+  const penUsers = pendingUsers || 0
+
+  // Cálculo da Receita (Estimativa Simplificada)
+  const plans = plansRes.data || []
+  let estimatedRevenue = 0
+  if (plans.length > 0) {
+    // Usando o plano mais barato como estimativa conservadora
+    const minPrice = Math.min(...plans.map(p => Number(p.price)))
+    estimatedRevenue = actUsers * minPrice
   }
 
-  // 1. Busca todos os usuários do banco para calcular métricas de visão geral
-  const { data: usersData, error } = await supabase
-    .from('users')
-    .select('id, name, email, plan_status, created_at')
-    .order('created_at', { ascending: false })
-
-  const users: UserMetric[] = (usersData as UserMetric[]) || []
-
-  // 2. Calcula métricas reais
-  const totalUsers = users.length
-  const activeUsers = users.filter(u => u.plan_status === 'active').length
-  const pendingUsers = users.filter(u => u.plan_status === 'pending' || !u.plan_status).length
-  const inactiveUsers = totalUsers - activeUsers - pendingUsers
-
-  const conversionRate = totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0
-  const abandonmentRate = totalUsers > 0 ? Math.round((pendingUsers / totalUsers) * 100) : 0
-  
-  // Valor do plano oficial cadastrado (R$ 29,00 anual)
-  const PLAN_PRICE_ANNUAL = 29.0
-  const estimatedRevenue = activeUsers * PLAN_PRICE_ANNUAL
-
   const metrics: OverviewMetrics = {
-    totalUsers,
-    activeUsers,
-    pendingUsers,
-    inactiveUsers,
-    conversionRate,
-    abandonmentRate,
+    totalUsers: totUsers,
+    activeUsers: actUsers,
+    pendingUsers: penUsers,
+    inactiveUsers: totUsers - actUsers - penUsers, // Past Due, Canceled, etc
+    totalAffiliates: affiliateUsersCount || 0,
     estimatedRevenue,
-    recentUsers: users,
+    averagePlanPrice: plans.length ? Math.min(...plans.map(p => Number(p.price))) : 0
   }
 
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground">
-            Visão Geral
-          </h1>
-          <span className="text-[11px] font-bold bg-primary/10 text-primary px-2.5 py-0.5 rounded-full">
-            Painel Executivo
-          </span>
-        </div>
-        <p className="text-xs md:text-sm text-muted-foreground">
-          Métricas de adesão, conversão de checkout no Mercado Pago e volume de assinantes em tempo real.
-        </p>
-      </div>
+    <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+      <div className="max-w-6xl mx-auto">
+        <header className="mb-8">
+          <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">Visão Geral</h1>
+          <p className="text-muted-foreground font-medium">Métricas e acompanhamento do sistema Meu DinDin.</p>
+        </header>
 
-      <AdminOverviewDashboard metrics={metrics} />
-    </div>
+        <AdminOverviewDashboard 
+          metrics={metrics} 
+          recentUsers={(recentUsersRes.data || []) as any[]} 
+          plans={(plans || []) as any[]} 
+        />
+      </div>
+    </main>
   )
 }

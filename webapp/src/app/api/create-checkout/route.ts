@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
 import { createClient } from '@/utils/supabase/server';
@@ -5,7 +6,7 @@ import { createClient } from '@/utils/supabase/server';
 /**
  * POST /api/create-checkout
  * Gera um link de pagamento para um usuário JÁ CADASTRADO (ex: vindo do paywall).
- * Diferente do /api/register que cria o usuário + preference.
+ * Busca dinamicamente o valor e nome do plano ativo configurado no /admin.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -17,9 +18,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
     }
 
-    const body = await request.json();
-    // Usa o userId do token de sessão, não do body (segurança)
-    const { userEmail, userName } = body;
+    const body = await request.json().catch(() => ({}));
+    const { userEmail, userName, planId } = body;
 
     const mpAccessToken = process.env.MP_ACCESS_TOKEN;
     if (!mpAccessToken) {
@@ -28,6 +28,20 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Busca o plano ativo no Supabase
+    let activePlan = null;
+    if (planId) {
+      const { data } = await supabase.from('plans').select('*').eq('id', planId).single();
+      activePlan = data;
+    }
+    if (!activePlan) {
+      const { data } = await supabase.from('plans').select('*').eq('is_active', true).order('sort_order', { ascending: true }).limit(1).single();
+      activePlan = data;
+    }
+
+    const planPrice = activePlan ? Number(activePlan.price) : 29.00;
+    const planName = activePlan?.name || 'Meu DinDin — Assinatura Anual';
 
     const client = new MercadoPagoConfig({
       accessToken: mpAccessToken,
@@ -40,16 +54,16 @@ export async function POST(request: NextRequest) {
     const preferenceBody = {
       items: [
         {
-          id: 'meu_dindin_anual',
-          title: 'Meu DinDin — Assinatura Anual',
+          id: activePlan?.id || 'meu_dindin_anual',
+          title: planName,
           quantity: 1,
-          unit_price: 29.00,
+          unit_price: planPrice,
           currency_id: 'BRL',
         },
       ],
       payer: {
-        name: userName || 'Teste',
-        email: 'test_user_dindin_' + Math.floor(Math.random() * 100000) + '@testuser.com', // Override para evitar erro de 'comprador = vendedor' no Sandbox do MP
+        name: userName || user.user_metadata?.name || 'Cliente',
+        email: userEmail || user.email || '',
       },
       external_reference: user.id, // Sempre usa o ID do usuário autenticado
       back_urls: {
@@ -58,6 +72,7 @@ export async function POST(request: NextRequest) {
         pending: `${siteUrl}/aguardando?status=pending`,
       },
       auto_return: 'approved' as const,
+      notification_url: `${siteUrl}/api/webhooks/mercadopago`,
       statement_descriptor: 'MEU DINDIN',
     };
 
@@ -76,3 +91,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+

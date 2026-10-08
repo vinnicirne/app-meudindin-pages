@@ -3,11 +3,16 @@
 import { motion } from "framer-motion"
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import EditTransactionModal from '@/components/transactions/EditTransactionModal'
 import { deleteTransactionAction, togglePaidTransactionAction } from '@/app/actions/transactionActions'
 import { toast } from 'react-hot-toast'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { parseDateParts, formatDateBR, dateKey } from '@/lib/dateUtils'
+import { buildCategoryMap, buildCategoryColorsMap } from '@/lib/categoryUtils'
+import dynamic from 'next/dynamic'
+const OnboardingTour = dynamic(() => import('@/components/ui/OnboardingTour').then(mod => mod.OnboardingTour), { ssr: false })
 
 interface Transaction {
   id: string
@@ -29,8 +34,19 @@ function formatCurrency(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-export default function HomeClient({ transactions }: { transactions: Transaction[] }) {
-  const router = useRouter()
+import { useDashboardData } from '@/hooks/useDashboardData'
+import { useQueryClient } from '@tanstack/react-query'
+
+export default function HomeClient() {
+  const { data, isLoading } = useDashboardData()
+  const transactions = data?.transactions || []
+  const dbCategories = data?.categories || []
+  const overallBalance = data?.overallBalance || 0
+  const liquidBalance = data?.liquidBalance || 0
+  const totalInVaults = data?.totalInVaults || 0
+
+
+    const queryClient = useQueryClient()
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
@@ -48,37 +64,42 @@ export default function HomeClient({ transactions }: { transactions: Transaction
     else setMonth(m => m + 1)
   }
 
-  const filtered = useMemo(() =>
-    transactions.filter(t => {
-      const d = new Date(t.date)
-      return d.getFullYear() === year && d.getMonth() === month
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-    [transactions, year, month]
-  )
+  
+  const { filteredTransactions, income, expense, paidCount, pendingCount } = useMemo(() => {
+    let inc = 0
+    let exp = 0
+    let pd = 0
+    let pnd = 0
+    const list = []
 
-  const totalIncome = useMemo(() =>
-    filtered.filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0),
-    [filtered]
-  )
-  const totalExpense = useMemo(() =>
-    filtered.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0),
-    [filtered]
-  )
-  const balance = totalIncome - totalExpense
+    for (const t of transactions) {
+      const parts = parseDateParts(t.date)
+      if (!parts) continue
+      if (parts.year === year && parts.month === month) {
+        list.push(t)
+        const val = Number(t.amount || 0)
+        if (t.type === 'INCOME') inc += val
+        else exp += val
+        
+        if (t.is_paid === true) pd += 1
+        else pnd += 1
+      }
+    }
 
-  // Baixa / liquidadas do mês
-  const paidCount = useMemo(() => filtered.filter(t => t.is_paid !== false).length, [filtered])
-  const pendingCount = filtered.length - paidCount
+    list.sort((a, b) => dateKey(b.date).localeCompare(dateKey(a.date)))
 
-  const categoryLabel: Record<string, string> = {
-    alimentacao: 'Alimentação',
-    transporte: 'Transporte',
-    moradia: 'Moradia',
-    salario: 'Salário',
-    lazer: 'Lazer',
-    saude: 'Saúde & Farmácia',
-    outros: 'Outros',
-  }
+    return { filteredTransactions: list, income: inc, expense: exp, paidCount: pd, pendingCount: pnd }
+  }, [transactions, year, month])
+
+
+  // Mapa real de categorias vindo do Supabase (ignora mock anterior)
+  const categoryMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    dbCategories.forEach(cat => {
+      map[cat.slug || cat.id] = cat.label || cat.name || cat.title || cat.slug
+    })
+    return map
+  }, [dbCategories])
 
   async function handleDelete(id: string, e?: React.MouseEvent) {
     e?.stopPropagation()
@@ -97,27 +118,31 @@ export default function HomeClient({ transactions }: { transactions: Transaction
       toast.error('Erro ao excluir: ' + res.error)
     } else {
       toast.success('Lançamento excluído!')
-      router.refresh()
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     }
   }
 
   async function handleTogglePaid(t: Transaction, e?: React.MouseEvent) {
     e?.stopPropagation()
-    const newStatus = t.is_paid === false ? true : false
+    const newStatus = t.is_paid === true ? false : true
     const res = await togglePaidTransactionAction(t.id, newStatus)
     if (res?.error) {
       toast.error('Erro ao alterar status: ' + res.error)
     } else {
-      toast.success(newStatus ? 'Marcado como pago!' : 'Marcado como pendente!')
-      router.refresh()
+      toast.success(newStatus ? (t.type === 'INCOME' ? 'Marcado como recebido!' : 'Marcado como pago!') : 'Marcado como pendente!')
+      queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
     }
   }
 
+  if (isLoading) return <div className="flex-1 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>
+
   return (
     <main className="flex-1 flex flex-col p-4 max-w-md mx-auto w-full relative min-h-screen pb-24">
+      {/* <OnboardingTour /> */}
 
       {/* Month Selector */}
       <motion.div
+        suppressHydrationWarning
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex items-center justify-between mb-4 mt-2 px-4"
@@ -144,21 +169,25 @@ export default function HomeClient({ transactions }: { transactions: Transaction
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1 }}
-        className="bg-[#1a5b48] text-white rounded-3xl p-5 shadow-sm mb-4"
+        className="bg-[#1a5b48] text-white rounded-3xl p-5 shadow-sm mb-4 tour-balance"
       >
-        <div className="flex flex-col gap-1 mb-3">
-          <span className="text-white/80 text-xs font-semibold">Saldo Total Geral</span>
-          <span className="text-3xl font-extrabold tracking-tight">{formatCurrency(balance)}</span>
-        </div>
-        <div className="mb-4">
-          <div className="inline-flex bg-[#23735b] px-3 py-1 rounded-full items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-white/95">
-              {paidCount} baixado(s) {pendingCount > 0 ? `· ${pendingCount} pendente(s)` : ''}
-            </span>
+        
+          <div className="flex flex-col gap-1 mb-3">
+            <span className="text-white/80 text-xs font-semibold">Saldo Livre Disponível</span>
+            <span className="text-3xl font-extrabold tracking-tight">{formatCurrency(liquidBalance)}</span>
           </div>
-        </div>
+          <div className="mb-4">
+            <div className="inline-flex bg-[#23735b] px-3 py-1 rounded-full items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-semibold text-white/95">
+                {paidCount} baixado(s) {pendingCount > 0 ? `· ${pendingCount} pendente(s)` : ''}
+              </span>
+              <span className="text-[11px] font-semibold text-white/95 ml-1 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[12px]">savings</span> Guardado: {formatCurrency(totalInVaults)}
+              </span>
+            </div>
+          </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 tour-quick-add">
           <Link href="/add?type=INCOME" className="flex-1 bg-[#1db576] hover:bg-[#1db576]/90 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
             <span className="material-symbols-outlined text-lg">add</span>
             <span className="text-sm">Receita</span>
@@ -185,7 +214,7 @@ export default function HomeClient({ transactions }: { transactions: Transaction
             <span className="text-xs font-semibold">Receitas</span>
           </div>
           <div>
-            <p className="text-[#1db576] font-bold text-lg">{formatCurrency(totalIncome)}</p>
+            <p className="text-[#1db576] font-bold text-lg">{formatCurrency(income)}</p>
             <p className="text-[9px] text-muted-foreground mt-0.5 font-medium">No mês selecionado</p>
           </div>
         </div>
@@ -198,30 +227,13 @@ export default function HomeClient({ transactions }: { transactions: Transaction
             <span className="text-xs font-semibold">Despesas</span>
           </div>
           <div>
-            <p className="text-[#e74c4c] font-bold text-lg">{formatCurrency(totalExpense)}</p>
+            <p className="text-[#e74c4c] font-bold text-lg">{formatCurrency(expense)}</p>
             <p className="text-[9px] text-muted-foreground mt-0.5 font-medium">No mês selecionado</p>
           </div>
         </div>
       </motion.div>
 
-      {/* Orçamento & Metas */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="bg-card rounded-2xl p-4 border border-border shadow-sm mb-6 flex flex-col justify-center"
-      >
-        <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#1a5b48] text-xl">receipt_long</span>
-            <h3 className="font-bold text-sm text-foreground">Orçamento & Metas</h3>
-          </div>
-          <Link href="/planning" className="text-xs font-bold text-[#1a5b48] hover:underline">Definir limites</Link>
-        </div>
-        <p className="text-xs text-muted-foreground leading-relaxed pr-4 font-medium">
-          Defina limites mensais de gastos para suas categorias e acompanhe o progresso em tempo real.
-        </p>
-      </motion.div>
+
 
       {/* Transações */}
       <motion.div
@@ -233,24 +245,20 @@ export default function HomeClient({ transactions }: { transactions: Transaction
         <div className="flex items-center justify-between mb-3 px-1">
           <h2 className="text-lg font-bold text-foreground">Transações do Mês</h2>
           <span className="text-xs text-muted-foreground font-semibold">
-            {filtered.length} registro(s)
+            {filteredTransactions.length} registro(s)
           </span>
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="bg-card rounded-2xl p-8 border border-border shadow-sm flex flex-col items-center justify-center text-center gap-3 flex-1 min-h-[200px]">
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-[#1a5b48] mb-2">
-              <span className="material-symbols-outlined">receipt_long</span>
-            </div>
-            <h3 className="font-bold text-sm text-foreground">Nenhuma movimentação neste mês</h3>
-            <p className="text-xs text-muted-foreground max-w-[250px] font-medium leading-relaxed">
-              Toque em + Receita ou + Despesa para registrar suas finanças.
-            </p>
-          </div>
+        {filteredTransactions.length === 0 ? (
+          <EmptyState 
+            icon="receipt_long" 
+            title="Nenhuma movimentação neste mês" 
+            description="Toque em + Receita ou + Despesa para registrar suas finanças." 
+          />
         ) : (
           <div className="flex flex-col gap-2">
-            {filtered.map((t) => {
-              const isPaid = t.is_paid !== false
+            {filteredTransactions.map((t) => {
+              const isPaid = t.is_paid === true
               return (
                 <div
                   key={t.id}
@@ -263,32 +271,34 @@ export default function HomeClient({ transactions }: { transactions: Transaction
                     {/* Botão de Dar Baixa */}
                     <button
                       type="button"
-                      title={isPaid ? 'Liquidado (toque para marcar pendente)' : 'Pendente (toque para dar baixa)'}
+                      title={isPaid ? (t.type === 'INCOME' ? 'Recebido (toque para desfazer)' : 'Pago (toque para desfazer)') : (t.type === 'INCOME' ? 'A Receber (toque para dar baixa)' : 'A Pagar (toque para dar baixa)')}
                       onClick={(e) => handleTogglePaid(t, e)}
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90 ${
                         isPaid
-                          ? t.type === 'INCOME'
-                            ? 'bg-[#1db576]/10 text-[#1db576]'
-                            : 'bg-[#e74c4c]/10 text-[#e74c4c]'
+                          ? 'bg-[#1db576]/10 text-[#1db576]'
                           : 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
                       }`}
                     >
                       <span className="material-symbols-outlined text-base">
-                        {isPaid ? (t.type === 'INCOME' ? 'arrow_upward' : 'arrow_downward') : 'schedule'}
+                        {isPaid ? 'check_circle' : 'radio_button_unchecked'}
                       </span>
                     </button>
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-semibold text-foreground truncate">{t.description}</p>
-                        {!isPaid && (
+                        {isPaid ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-[#1db576]/10 text-[#1db576] shrink-0">
+                            {t.type === 'INCOME' ? 'Recebido' : 'Pago'}
+                          </span>
+                        ) : (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
-                            Pendente
+                            {t.type === 'INCOME' ? 'A Receber' : 'A Pagar'}
                           </span>
                         )}
                       </div>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {categoryLabel[t.category_id] || t.category_id} · {new Date(t.date).toLocaleDateString('pt-BR')}
+                        {String(categoryMap[t.category_id] || t.category_id).charAt(0).toUpperCase() + String(categoryMap[t.category_id] || t.category_id).slice(1)} · {t.date.split('T')[0].split('-').reverse().join('/')}
                         {t.notes ? ` · ${t.notes}` : ''}
                       </p>
                     </div>
@@ -337,7 +347,7 @@ export default function HomeClient({ transactions }: { transactions: Transaction
         onClose={() => setEditingTransaction(null)}
         onSuccess={() => {
           setEditingTransaction(null)
-          router.refresh()
+          queryClient.invalidateQueries({ queryKey: ['dashboardData'] })
         }}
       />
 

@@ -9,7 +9,9 @@ import {
   updateUserRoleAction, 
   createUserAction, 
   deleteUserAction,
-  updateUserTrialAction
+  updateUserTrialAction,
+  saveAffiliateForUserAction,
+  removeAffiliateForUserAction
 } from '@/app/actions/adminUserActions'
 
 export interface AdminUserItem {
@@ -21,6 +23,17 @@ export interface AdminUserItem {
   plan_status: string | null
   trial_ends_at?: string | null
   created_at: string
+  is_affiliate?: boolean
+  affiliate_code?: string | null
+  affiliate_data?: {
+    id?: string
+    code: string
+    commission_type: 'fixed' | 'percentage'
+    commission_value: number
+    pix_key?: string
+    instagram?: string
+    phone?: string
+  }
 }
 
 interface Props {
@@ -31,7 +44,7 @@ interface Props {
 export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) {
   const [users, setUsers] = useState<AdminUserItem[]>(initialUsers)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'blocked'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'blocked' | 'affiliates'>('all')
   const [selectedUser, setSelectedUser] = useState<AdminUserItem | null>(null)
   const [isCreatingUser, setIsCreatingUser] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -46,6 +59,16 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
   const [newRole, setNewRole] = useState<'user' | 'admin'>('user')
   const [tempPassAlert, setTempPassAlert] = useState<string | null>(null)
 
+  // Modal de Parceria / Afiliado
+  const [affiliateModalUser, setAffiliateModalUser] = useState<AdminUserItem | null>(null)
+  const [affCode, setAffCode] = useState('')
+  const [affCommType, setAffCommType] = useState<'fixed' | 'percentage'>('percentage')
+  const [affCommValue, setAffCommValue] = useState('30')
+  const [affPixKey, setAffPixKey] = useState('')
+  const [affInstagram, setAffInstagram] = useState('')
+  const [affPhone, setAffPhone] = useState('')
+
+
   const filtered = users.filter((u) => {
     const matchSearch =
       (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -56,6 +79,7 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
     if (statusFilter === 'active') return u.plan_status === 'active'
     if (statusFilter === 'pending') return u.plan_status === 'pending' || !u.plan_status
     if (statusFilter === 'blocked') return u.plan_status === 'blocked'
+    if (statusFilter === 'affiliates') return Boolean(u.is_affiliate)
     return true
   })
 
@@ -147,7 +171,7 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
 
   function handleRoleChange(userId: string, targetRole: 'user' | 'admin') {
     if (userId === currentUserId && targetRole !== 'admin') {
-      alert('Você não pode remover seu próprio privilégio de administrador.')
+      alert('Vocêê não pode remover seu próprio privilégio de administrador.')
       return
     }
     setFeedback(null)
@@ -167,9 +191,106 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
     })
   }
 
+  
+  function handleOpenAffiliateModal(u: AdminUserItem) {
+    setAffiliateModalUser(u)
+    const existing = u.affiliate_data
+    const defaultCode = u.affiliate_code || existing?.code || (u.name ? u.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10) : u.email?.split('@')[0].replace(/[^a-z0-9]/g, '').slice(0, 10) || 'parceiro')
+
+    setAffCode(defaultCode)
+    setAffCommType(existing?.commission_type || 'percentage')
+    setAffCommValue(existing ? String(existing.commission_value) : '30')
+    setAffPixKey(existing?.pix_key || '')
+    setAffInstagram(existing?.instagram || '')
+    setAffPhone(existing?.phone || u.phone || '')
+  }
+
+  function handleSaveAffiliateModal(e: React.FormEvent) {
+    e.preventDefault()
+    if (!affiliateModalUser) return
+    const cleanCode = affCode.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    if (!cleanCode) {
+      alert('Informe um código de link válido (apenas letras e números).')
+      return
+    }
+
+    setFeedback(null)
+    startTransition(async () => {
+      const res = await saveAffiliateForUserAction({
+        userId: affiliateModalUser.id,
+        code: cleanCode,
+        commissionType: affCommType,
+        commissionValue: Number(affCommValue) || 30,
+        pixKey: affPixKey.trim() || undefined,
+        instagram: affInstagram.trim() || undefined,
+        phone: affPhone.trim() || undefined
+      })
+
+      if (res.error) {
+        setFeedback({ type: 'error', message: res.error })
+      } else {
+        const updatedData = {
+          code: cleanCode,
+          commission_type: affCommType,
+          commission_value: Number(affCommValue) || 30,
+          pix_key: affPixKey.trim(),
+          instagram: affInstagram.trim(),
+          phone: affPhone.trim()
+        }
+
+        setUsers(prev => prev.map(u => u.id === affiliateModalUser.id ? {
+          ...u,
+          is_affiliate: true,
+          affiliate_code: cleanCode,
+          affiliate_data: updatedData
+        } : u))
+
+        if (selectedUser && selectedUser.id === affiliateModalUser.id) {
+          setSelectedUser({
+            ...selectedUser,
+            is_affiliate: true,
+            affiliate_code: cleanCode,
+            affiliate_data: updatedData
+          })
+        }
+
+        setFeedback({ type: 'success', message: 'Parceria de afiliado salva com sucesso!' })
+        setAffiliateModalUser(null)
+      }
+    })
+  }
+
+  function handleRemoveAffiliate(userId: string) {
+    if (!confirm('Tem certeza que deseja remover este usuário do programa de parceiros?')) return
+    setFeedback(null)
+    startTransition(async () => {
+      const res = await removeAffiliateForUserAction(userId)
+      if (res.error) {
+        setFeedback({ type: 'error', message: res.error })
+      } else {
+        setUsers(prev => prev.map(u => u.id === userId ? {
+          ...u,
+          is_affiliate: false,
+          affiliate_code: null,
+          affiliate_data: undefined
+        } : u))
+
+        if (selectedUser && selectedUser.id === userId) {
+          setSelectedUser({
+            ...selectedUser,
+            is_affiliate: false,
+            affiliate_code: null,
+            affiliate_data: undefined
+          })
+        }
+        setFeedback({ type: 'success', message: 'Status de parceiro removido.' })
+      }
+    })
+  }
+
   function handleDeleteUser(userId: string) {
     if (userId === currentUserId) {
-      alert('Você não pode excluir sua própria conta enquanto estiver logado.')
+      alert('Vocêê não pode excluir sua própria conta enquanto estiver logado.')
       return
     }
     if (!confirm('Tem certeza que deseja excluir permanentemente este usuário?')) return
@@ -265,6 +386,14 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
               >
                 Pendentes ({users.filter((u) => u.plan_status === 'pending' || !u.plan_status).length})
               </Button>
+              <Button
+                variant={statusFilter === 'affiliates' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setStatusFilter('affiliates')}
+                className="text-xs h-8 rounded-lg text-emerald-500"
+              >
+                Afiliados ({users.filter((u) => u.is_affiliate).length})
+              </Button>
             </div>
 
             <Button
@@ -350,15 +479,23 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
                               )}
                             </td>
                             <td className="py-3.5">
-                              {isAdmin ? (
-                                <Badge className="bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30 text-[10px] font-bold">
-                                  Admin
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                                  Usuário
-                                </Badge>
-                              )}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {isAdmin ? (
+                                  <Badge className="bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30 text-[10px] font-bold">
+                                    Admin
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                    Usuário
+                                  </Badge>
+                                )}
+                                {u.is_affiliate && (
+                                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-bold flex items-center gap-1 whitespace-nowrap">
+                                    <span className="material-symbols-outlined text-[11px]">handshake</span>
+                                    Afiliado
+                                  </Badge>
+                                )}
+                              </div>
                             </td>
                             <td className="py-3.5">
                               {isActive && (
@@ -559,6 +696,91 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
                   </div>
                 </div>
 
+                {/* Afiliado / Parceiro */}
+                <div className="space-y-3 pt-3 border-t border-border/60">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground block">
+                      Programa de Parceiros
+                    </label>
+                    {selectedUser.is_affiliate && (
+                      <span className="text-[10px] font-bold bg-emerald-500/15 text-emerald-600 px-2 py-0.5 rounded-full">
+                        Parceiro Ativo
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedUser.is_affiliate ? (
+                    <div className="bg-muted/40 border border-border/70 rounded-2xl p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase">Código do Link</span>
+                        <span className="font-mono font-bold text-sm text-primary bg-primary/10 px-2 py-0.5 rounded-lg">
+                          {selectedUser.affiliate_code || selectedUser.affiliate_data?.code || 'N/A'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground font-medium">Comissão</span>
+                        <span className="font-bold text-foreground">
+                          {selectedUser.affiliate_data?.commission_type === 'fixed' 
+                            ? `R$ ${selectedUser.affiliate_data.commission_value.toFixed(2)} / venda` 
+                            : `${selectedUser.affiliate_data?.commission_value || 30}% por venda`}
+                        </span>
+                      </div>
+
+                      {selectedUser.affiliate_data?.pix_key && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground font-medium">Chave PIX</span>
+                          <span className="font-mono font-medium text-foreground truncate max-w-[140px]">
+                            {selectedUser.affiliate_data.pix_key}
+                          </span>
+                        </div>
+                      )}
+
+                      {selectedUser.affiliate_data?.instagram && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground font-medium">Instagram</span>
+                          <span className="font-medium text-pink-600">
+                            {selectedUser.affiliate_data.instagram}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => handleOpenAffiliateModal(selectedUser)}
+                          className="text-xs h-8 rounded-xl font-bold border-primary/30 text-primary hover:bg-primary/10"
+                        >
+                          <span className="material-symbols-outlined text-sm mr-1">edit</span>
+                          Editar Dados
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => handleRemoveAffiliate(selectedUser.id)}
+                          className="text-xs h-8 rounded-xl text-rose-500 hover:bg-rose-500/10"
+                        >
+                          Desativar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => handleOpenAffiliateModal(selectedUser)}
+                      className="w-full text-xs h-9 rounded-xl font-bold flex items-center justify-center gap-1.5 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:border-emerald-700 dark:hover:bg-emerald-900/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">handshake</span>
+                      Configurar Parceria / Tornar Afiliado
+                    </Button>
+                  )}
+                </div>
+
                 {/* Excluir Conta de Usuário */}
                 <div className="pt-2 border-t border-border/60">
                   <Button
@@ -678,6 +900,155 @@ export function AdminUsersClient({ users: initialUsers, currentUserId }: Props) 
           </div>
         </div>
       )}
+    
+      {/* Modal: Configurar Parceria de Afiliado */}
+      {affiliateModalUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-foreground flex items-center gap-2">
+                  <span>🤝</span>
+                  <span>Parceria de Afiliado</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Parceiro: <strong className="text-foreground">{affiliateModalUser.name || affiliateModalUser.email}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setAffiliateModalUser(null)}
+                className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAffiliateModal} className="space-y-4">
+              {/* Feedback inline dentro do modal */}
+              {feedback && (
+                <div className={`text-xs px-3 py-2 rounded-xl font-semibold flex items-center gap-2 ${feedback.type === 'error' ? 'bg-red-50 text-red-600 border border-red-200 dark:bg-red-900/20 dark:text-red-400' : 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400'}`}>
+                  <span className="material-symbols-outlined text-base">{feedback.type === 'error' ? 'error' : 'check_circle'}</span>
+                  {feedback.message}
+                </div>
+              )}
+              {/* Código do Link */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Código do Link Exclusivo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={affCode}
+                  onChange={(e) => setAffCode(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                  placeholder="Ex: angeltheo, soucamilis, maria20"
+                  className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Gera os links com: <code className="text-primary font-bold">?ref={affCode || 'codigo'}</code>
+                </p>
+              </div>
+
+              {/* Tipo e Valor da Comissão */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    Tipo de Comissão
+                  </label>
+                  <select
+                    value={affCommType}
+                    onChange={(e: any) => setAffCommType(e.target.value)}
+                    className="w-full bg-muted/50 border border-border rounded-xl px-3 py-3 text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="percentage">Porcentagem (%)</option>
+                    <option value="fixed">Valor Fixo (R$)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    {affCommType === 'percentage' ? 'Comissão (%)' : 'Valor Fixo (R$)'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step={affCommType === 'percentage' ? '1' : '0.01'}
+                    required
+                    value={affCommValue}
+                    onChange={(e) => setAffCommValue(e.target.value)}
+                    placeholder="30"
+                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+
+              {/* Chave PIX */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Chave PIX (para Repasses)
+                </label>
+                <input
+                  type="text"
+                  value={affPixKey}
+                  onChange={(e) => setAffPixKey(e.target.value)}
+                  placeholder="CPF, E-mail, Telefone ou Aleatória"
+                  className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+
+              {/* Instagram e WhatsApp */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    Instagram (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={affInstagram}
+                    onChange={(e) => setAffInstagram(e.target.value)}
+                    placeholder="@perfil"
+                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    WhatsApp (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={affPhone}
+                    onChange={(e) => setAffPhone(e.target.value)}
+                    placeholder="5521999999999"
+                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+
+              {/* Botões do Modal */}
+              <div className="pt-3 flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAffiliateModalUser(null)}
+                  disabled={isPending}
+                  className="flex-1 h-11 rounded-xl font-bold text-xs"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isPending}
+                  className="flex-[2] h-11 rounded-xl font-bold text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {isPending ? 'Salvando...' : 'Salvar e Ativar Parceria'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

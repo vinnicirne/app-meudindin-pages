@@ -1,34 +1,17 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/utils/supabase/server'
+﻿import { requireAdmin } from '@/utils/admin'
 import AdminSidebar from './AdminSidebar'
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+export const dynamic = 'force-dynamic'
 
-  if (!user) redirect('/login')
-
-  const { data: userData } = await supabase
-    .from('users')
-    .select('role, name, email')
-    .eq('id', user.id)
-    .single()
-
-  if (userData?.role !== 'admin') redirect('/')
-
-  const displayName = userData?.name || user.email?.split('@')[0] || 'Admin'
-  const email = user.email || ''
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  await requireAdmin()
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AdminSidebar displayName={displayName} email={email} />
-      <main className="flex-1 flex flex-col min-h-screen overflow-y-auto">
+    <div className="flex min-h-screen bg-background">
+      <AdminSidebar />
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
         {children}
-      </main>
+      </div>
     </div>
   )
 }

@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache'
 async function checkAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Não autenticado.')
+  if (!user) throw new Error('NÃƒÂ£o autenticado.')
 
   const { data: userData } = await supabase
     .from('users')
@@ -15,7 +15,7 @@ async function checkAdmin() {
     .eq('id', user.id)
     .single()
 
-  if (userData?.role !== 'admin') throw new Error('Acesso não autorizado.')
+  if (userData?.role !== 'admin') throw new Error('Acesso nÃƒÂ£o autorizado.')
   return supabase
 }
 
@@ -23,7 +23,7 @@ function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
   if (!url || !serviceKey) {
-    throw new Error('Chave de serviço do Supabase não configurada.')
+    throw new Error('Chave de serviÃƒÂ§o do Supabase nÃƒÂ£o configurada.')
   }
   return createSupabaseClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false }
@@ -44,7 +44,7 @@ export async function createUserAction(formData: {
 
     const tempPassword = formData.password || ('Mdd#' + Math.random().toString(36).slice(-6) + '!')
 
-    // 1. Cria usuário no Auth
+    // 1. Cria usuÃƒÂ¡rio no Auth
     const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
       email: formData.email,
       password: tempPassword,
@@ -82,7 +82,7 @@ export async function createUserAction(formData: {
       temporaryPassword: formData.password ? undefined : tempPassword 
     }
   } catch (err: any) {
-    return { error: err.message || 'Erro ao criar novo usuário.' }
+    return { error: err.message || 'Erro ao criar novo usuÃƒÂ¡rio.' }
   }
 }
 
@@ -95,7 +95,7 @@ export async function deleteUserAction(userId: string) {
     const { error: authError } = await adminSupabase.auth.admin.deleteUser(userId)
     if (authError) throw authError
 
-    // 2. Remove de public.users por segurança caso não tenha cascade
+    // 2. Remove de public.users por seguranÃƒÂ§a caso nÃƒÂ£o tenha cascade
     await adminSupabase.from('users').delete().eq('id', userId)
 
     revalidatePath('/admin/users')
@@ -104,15 +104,16 @@ export async function deleteUserAction(userId: string) {
 
     return { success: true }
   } catch (err: any) {
-    return { error: err.message || 'Erro ao excluir usuário.' }
+    return { error: err.message || 'Erro ao excluir usuÃƒÂ¡rio.' }
   }
 }
 
 export async function updateUserPlanStatusAction(userId: string, newStatus: 'active' | 'pending' | 'blocked') {
   try {
-    const supabase = await checkAdmin()
+    await checkAdmin()
+    const adminSupabase = getAdminClient()
     
-    const { error } = await supabase
+    const { error } = await adminSupabase
       .from('users')
       .update({ plan_status: newStatus })
       .eq('id', userId)
@@ -124,15 +125,16 @@ export async function updateUserPlanStatusAction(userId: string, newStatus: 'act
     revalidatePath('/admin')
     return { success: true }
   } catch (err: any) {
-    return { error: err.message || 'Erro ao atualizar status do usuário.' }
+    return { error: err.message || 'Erro ao atualizar status do usuÃƒÂ¡rio.' }
   }
 }
 
 export async function updateUserRoleAction(userId: string, newRole: 'user' | 'admin') {
   try {
-    const supabase = await checkAdmin()
+    await checkAdmin()
+    const adminSupabase = getAdminClient()
     
-    const { error } = await supabase
+    const { error } = await adminSupabase
       .from('users')
       .update({ role: newRole })
       .eq('id', userId)
@@ -143,7 +145,7 @@ export async function updateUserRoleAction(userId: string, newRole: 'user' | 'ad
     revalidatePath('/admin')
     return { success: true }
   } catch (err: any) {
-    return { error: err.message || 'Erro ao alterar permissão do usuário.' }
+    return { error: err.message || 'Erro ao alterar permissÃƒÂ£o do usuÃƒÂ¡rio.' }
   }
 }
 
@@ -172,6 +174,124 @@ export async function updateUserTrialAction(userId: string, daysToAdd: number | 
     revalidatePath('/admin')
     return { success: true }
   } catch (err: any) {
-    return { error: err.message || 'Erro ao atualizar período de teste.' }
+    return { error: err.message || 'Erro ao atualizar perÃƒÂ­odo de teste.' }
+  }
+}
+
+export async function saveAffiliateForUserAction(data: {
+  userId: string
+  code: string
+  commissionType: 'fixed' | 'percentage'
+  commissionValue: number
+  pixKey?: string
+  instagram?: string
+  phone?: string
+}) {
+  try {
+    await checkAdmin()
+    const adminSupabase = getAdminClient()
+
+    // 1. Busca dados do usuÃ¡rio
+    const { data: targetUser, error: userErr } = await adminSupabase
+      .from('users')
+      .select('id, name, email, phone')
+      .eq('id', data.userId)
+      .single()
+
+    if (userErr || !targetUser) return { error: 'Usuário não encontrado.' }
+
+    const cleanCode = data.code.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    if (!cleanCode) return { error: 'Código de afiliado inválido.' }
+
+    // 2. Atualiza tabela users
+    const { error: userUpdateErr } = await adminSupabase
+      .from('users')
+      .update({
+        is_affiliate: true,
+        affiliate_code: cleanCode
+      })
+      .eq('id', data.userId)
+
+    if (userUpdateErr) {
+      if (userUpdateErr.message?.includes('affiliate_code') || userUpdateErr.message?.includes('schema cache')) {
+        return { error: 'As colunas de afiliado ainda nÃ£o foram criadas no Supabase. Execute o comando SQL no SQL Editor.' }
+      }
+      return { error: userUpdateErr.message }
+    }
+
+    // 3. Upsert na tabela affiliates para sincronização total
+    // Tenta por user_id primeiro (parceiro existente), depois por code
+    const { error: affErr } = await adminSupabase
+      .from('affiliates')
+      .upsert({
+        user_id: data.userId,
+        name: targetUser.name || targetUser.email,
+        code: cleanCode,
+        commission_type: data.commissionType,
+        commission_value: data.commissionValue,
+        pix_key: data.pixKey || null,
+        instagram: data.instagram || null,
+        phone: data.phone || targetUser.phone || null,
+      }, { onConflict: 'user_id' })
+
+    if (affErr) {
+      // Fallback: tenta onConflict por code
+      const { error: affErr2 } = await adminSupabase
+        .from('affiliates')
+        .upsert({
+          user_id: data.userId,
+          name: targetUser.name || targetUser.email,
+          code: cleanCode,
+          commission_type: data.commissionType,
+          commission_value: data.commissionValue,
+          pix_key: data.pixKey || null,
+          instagram: data.instagram || null,
+          phone: data.phone || targetUser.phone || null,
+        }, { onConflict: 'code' })
+
+      if (affErr2) return { error: `Erro ao salvar afiliado: ${affErr2.message}` }
+    }
+
+    revalidatePath('/admin/users')
+    revalidatePath('/admin/affiliates')
+    revalidatePath('/affiliate')
+    return { success: true }
+  } catch (err: any) {
+    console.error('Erro ao salvar parceria de afiliado:', err)
+    return { error: err.message || 'Erro ao salvar parceiro.' }
+  }
+}
+
+export async function removeAffiliateForUserAction(userId: string) {
+  try {
+    await checkAdmin()
+    const adminSupabase = getAdminClient()
+
+    const { data: targetUser } = await adminSupabase
+      .from('users')
+      .select('affiliate_code')
+      .eq('id', userId)
+      .single()
+
+    const oldCode = targetUser?.affiliate_code
+
+    // 1. Remove status na tabela users
+    await adminSupabase
+      .from('users')
+      .update({ is_affiliate: false, affiliate_code: null })
+      .eq('id', userId)
+
+    // 2. Remove registro na tabela affiliates
+    if (oldCode) {
+      await adminSupabase.from('affiliates').delete().eq('code', oldCode)
+    }
+    await adminSupabase.from('affiliates').delete().eq('user_id', userId)
+
+    revalidatePath('/admin/users')
+    revalidatePath('/admin/affiliates')
+    revalidatePath('/affiliate')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message || 'Erro ao remover parceria.' }
   }
 }

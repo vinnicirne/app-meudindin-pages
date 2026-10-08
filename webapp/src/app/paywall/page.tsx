@@ -1,22 +1,16 @@
+export const dynamic = 'force-dynamic';
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import PaywallClient from './PaywallClient'
 
-/**
- * Paywall — Server Component
- * Busca os dados do usuário logado e passa para o client component
- * que irá gerar o link de pagamento personalizado.
- */
 export default async function PaywallPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Se não estiver logado, manda para o cadastro (início do funil)
   if (!user) {
     redirect('/cadastro')
   }
 
-  // Se já está ativo, não precisa do paywall
   const { data: userData } = await supabase
     .from('users')
     .select('plan_status, name, email')
@@ -27,11 +21,30 @@ export default async function PaywallPage() {
     redirect('/')
   }
 
+  // Busca todos os planos ativos configurados no /admin
+  const { data: activePlans } = await supabase
+    .from('plans')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  const plans = activePlans && activePlans.length > 0 ? activePlans : [
+    {
+      id: 'default',
+      name: 'Plano Anual Oficial',
+      price: 29.00,
+      interval: 'year',
+      description: 'Acesso ilimitado a todas as ferramentas por 1 ano.',
+      badge: 'MAIS POPULAR'
+    }
+  ]
+
   return (
     <PaywallClient
       userId={user.id}
       userEmail={userData?.email || user.email || ''}
       userName={userData?.name || ''}
+      plans={plans}
     />
   )
 }

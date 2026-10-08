@@ -1,11 +1,13 @@
-'use client';
+﻿'use client';
 
-import * as motion from "framer-motion/client";
+import { motion } from 'framer-motion';
 import { logoutAction } from '@/app/actions/authActions';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { requestForToken } from '@/utils/firebase/firebase';
+import { toast } from 'react-hot-toast';
 
 interface Props {
   userId: string;
@@ -29,8 +31,76 @@ export default function ProfileClient({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showDataModal, setShowDataModal] = useState(false);
+  
+  // App Lock State
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
 
-  const initials = displayName.slice(0, 2).toUpperCase();
+  useEffect(() => {
+    setAppLockEnabled(localStorage.getItem('meu-dindin-applock') === 'true');
+  }, []);
+
+  async function handleToggleAppLock() {
+    try {
+      if (appLockEnabled) {
+        localStorage.removeItem('meu-dindin-applock');
+        localStorage.removeItem('meu-dindin-applock-id');
+        setAppLockEnabled(false);
+        toast.success('Bloqueio do app desativado.');
+        return;
+      }
+
+      if (!window.PublicKeyCredential) {
+        toast.error('Seu dispositivo ou navegador não suporta biometria.');
+        return;
+      }
+
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      const userIdBuffer = new Uint8Array(16);
+      window.crypto.getRandomValues(userIdBuffer);
+
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: challenge,
+          rp: { name: "Meu DinDin", id: window.location.hostname },
+          user: {
+            id: userIdBuffer,
+            name: email,
+            displayName: displayName
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 },
+            { type: "public-key", alg: -257 }
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required"
+          },
+          timeout: 60000,
+        }
+      }) as PublicKeyCredential;
+
+      if (credential && credential.rawId) {
+        // Safe base64 encoding for ArrayBuffer
+        const rawIdArray = new Uint8Array(credential.rawId);
+        let binString = '';
+        for (let i = 0; i < rawIdArray.length; i++) {
+          binString += String.fromCharCode(rawIdArray[i]);
+        }
+        const base64Id = btoa(binString);
+
+        localStorage.setItem('meu-dindin-applock-id', base64Id);
+        localStorage.setItem('meu-dindin-applock', 'true');
+        setAppLockEnabled(true);
+        toast.success('Biometria ativada com sucesso! O app será bloqueado no próximo acesso.');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Operação cancelada ou falhou.');
+    }
+  }
+
+  const initials = (displayName.trim().slice(0, 2) || email.slice(0, 2) || '?').toUpperCase();
   const isActive = planStatus === 'active';
 
   async function handleLogout() {
@@ -39,9 +109,38 @@ export default function ProfileClient({
     setLoading(false);
 
     if (res?.error) {
-      alert("Erro ao sair: " + res.error);
+      toast.error("Erro ao sair: " + res.error);
     } else {
       router.push('/login');
+      router.refresh();
+    }
+  }
+
+  async function handleTogglePush() {
+    toast.loading('Configurando notificações...', { id: 'push-profile' });
+    try {
+      const { token, error } = await requestForToken();
+      if (!token) {
+        toast.error(error || 'Permissão negada ou não suportado.', { id: 'push-profile' });
+        return;
+      }
+
+      const apiRes = await fetch('/api/push/save-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      const res = await apiRes.json().catch(() => ({}));
+      
+      if (!apiRes.ok || !res.success) {
+        toast.error(res.error || 'Erro ao salvar token.', { id: 'push-profile' });
+        return;
+      }
+
+      toast.success('Notificações ativadas com sucesso!', { id: 'push-profile' });
+    } catch (e) {
+      toast.error('Falha ao configurar notificações.', { id: 'push-profile' });
     }
   }
 
@@ -53,7 +152,6 @@ export default function ProfileClient({
         <h1 className="text-xl font-bold text-foreground">Meu Perfil</h1>
       </div>
 
-      {/* Profile Card */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -79,7 +177,6 @@ export default function ProfileClient({
         </div>
       </motion.div>
 
-      {/* Subscription Status */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -104,127 +201,169 @@ export default function ProfileClient({
         </div>
       </motion.div>
 
-      {/* Menu Options */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         className="flex flex-col gap-3 mb-6"
       >
-        {/* Meus Dados de Cadastro */}
-        <button
-          onClick={() => setShowDataModal(true)}
-          className="bg-card w-full p-4 rounded-2xl flex items-center justify-between border border-border/50 shadow-sm hover:bg-muted transition-colors text-left"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">person</span>
+        <div className="bg-card rounded-2xl overflow-hidden shadow-sm border border-border/50">
+          <div className="flex items-center justify-between p-4 border-b border-border/50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground">
+                <span className="material-symbols-outlined text-sm">dark_mode</span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Tema Escuro</p>
+                <p className="text-[10px] text-muted-foreground">Alternar aparência</p>
+              </div>
             </div>
-            <div>
-              <span className="font-semibold text-sm text-foreground block">Meus Dados</span>
-              <span className="text-[11px] text-muted-foreground">Nome, e-mail, telefone e cadastro</span>
-            </div>
+            <ThemeToggle />
           </div>
-          <span className="material-symbols-outlined text-muted-foreground text-[20px]">chevron_right</span>
-        </button>
 
-        <ThemeToggle />
-
-        {/* Link para admin — só aparece para admins */}
-        {role === 'admin' && (
-          <Link
-            href="/admin"
-            className="bg-card w-full p-4 rounded-2xl flex items-center justify-between border border-primary/30 shadow-sm hover:bg-muted transition-colors"
+          <button 
+            onClick={handleToggleAppLock}
+            className="w-full flex items-center justify-between p-4 border-b border-border/50 hover:bg-muted/50 transition-colors text-left"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">admin_panel_settings</span>
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground">
+                <span className="material-symbols-outlined text-sm">fingerprint</span>
               </div>
-              <span className="font-semibold text-sm text-foreground">Painel Admin</span>
+              <div>
+                <p className="text-sm font-bold text-foreground">App Lock</p>
+                <p className="text-[10px] text-muted-foreground">Bloqueio biométrico</p>
+              </div>
             </div>
-            <span className="material-symbols-outlined text-muted-foreground text-[20px]">chevron_right</span>
-          </Link>
-        )}
-      </motion.div>
+            <div className={`w-10 h-6 rounded-full p-1 transition-colors ${appLockEnabled ? 'bg-[#1db576]' : 'bg-muted-foreground/30'}`}>
+              <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${appLockEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+            </div>
+          </button>
 
-      {/* Logout Button */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="mt-auto px-1"
-      >
-        <button
-          onClick={handleLogout}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-2 bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold py-4 rounded-2xl transition-colors disabled:opacity-50 text-sm"
-        >
-          <span className="material-symbols-outlined text-[20px]">logout</span>
-          {loading ? 'Saindo...' : 'Sair da conta'}
-        </button>
-      </motion.div>
-
-      {/* Modal: Meus Dados de Cadastro */}
-      {showDataModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-card border border-border/80 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">badge</span>
-                <h3 className="font-bold text-base text-foreground">Dados de Cadastro</h3>
+          <button 
+            onClick={handleTogglePush}
+            className="w-full flex items-center justify-between p-4 border-b border-border/50 hover:bg-muted/50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground">
+                <span className="material-symbols-outlined text-sm">notifications_active</span>
               </div>
-              <button
-                onClick={() => setShowDataModal(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
-              >
+              <div>
+                <p className="text-sm font-bold text-foreground">Notificações</p>
+                <p className="text-[10px] text-muted-foreground">Alertas no dispositivo</p>
+              </div>
+            </div>
+            <span className="material-symbols-outlined text-muted-foreground text-sm">chevron_right</span>
+          </button>
+
+          <button 
+            onClick={() => setShowDataModal(true)}
+            className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground">
+                <span className="material-symbols-outlined text-sm">database</span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Meus Dados</p>
+                <p className="text-[10px] text-muted-foreground">Exportar ou visualizar</p>
+              </div>
+            </div>
+            <span className="material-symbols-outlined text-muted-foreground text-sm">chevron_right</span>
+          </button>
+        </div>
+
+        <div className="bg-card rounded-2xl overflow-hidden shadow-sm border border-border/50">
+          <Link href="/help" className="flex items-center justify-between p-4 border-b border-border/50 hover:bg-muted/50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground">
+                <span className="material-symbols-outlined text-sm">help</span>
+              </div>
+              <p className="text-sm font-bold text-foreground">Ajuda e Suporte</p>
+            </div>
+            <span className="material-symbols-outlined text-muted-foreground text-sm">chevron_right</span>
+          </Link>
+          
+          {role === 'admin' && (
+            <Link href="/admin" className="flex items-center justify-between p-4 border-b border-border/50 hover:bg-muted/50 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                  <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-500">Painel Admin</p>
+                  <p className="text-[10px] text-amber-500/70">Acesso restrito</p>
+                </div>
+              </div>
+              <span className="material-symbols-outlined text-amber-500 text-sm">chevron_right</span>
+            </Link>
+          )}
+
+          <button 
+            onClick={handleLogout}
+            disabled={loading}
+            className="w-full flex items-center justify-between p-4 hover:bg-red-500/5 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500">
+                <span className="material-symbols-outlined text-sm">logout</span>
+              </div>
+              <p className="text-sm font-bold text-red-500">Sair da conta</p>
+            </div>
+            {loading ? (
+              <span className="material-symbols-outlined animate-spin text-red-500 text-sm">refresh</span>
+            ) : (
+              <span className="material-symbols-outlined text-red-500 text-sm">chevron_right</span>
+            )}
+          </button>
+        </div>
+      </motion.div>
+
+      {showDataModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="data-modal-title"
+          onClick={() => setShowDataModal(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setShowDataModal(false)}
+        >
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-card w-full max-w-sm rounded-2xl shadow-xl border border-border/50 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 id="data-modal-title" className="font-bold text-foreground text-lg">Seus Dados</h3>
+              <button onClick={() => setShowDataModal(false)} className="text-muted-foreground hover:text-foreground bg-muted w-8 h-8 flex items-center justify-center rounded-full transition-colors">
                 <span className="material-symbols-outlined text-sm">close</span>
               </button>
             </div>
-
-            <div className="space-y-3.5 text-xs">
-              <div className="p-3 bg-muted/40 rounded-2xl border border-border/40">
-                <span className="text-muted-foreground text-[10px] uppercase font-bold block mb-0.5">Nome Completo</span>
-                <p className="font-bold text-sm text-foreground">{displayName || 'Não informado'}</p>
+            
+            <div className="space-y-4 mb-6">
+              <div className="bg-muted p-4 rounded-xl">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-1">ID da Conta</p>
+                <p className="text-xs font-mono text-foreground break-all">{userId}</p>
               </div>
-
-              <div className="p-3 bg-muted/40 rounded-2xl border border-border/40">
-                <span className="text-muted-foreground text-[10px] uppercase font-bold block mb-0.5">E-mail</span>
-                <p className="font-bold text-sm text-foreground">{email}</p>
-              </div>
-
-              <div className="p-3 bg-muted/40 rounded-2xl border border-border/40">
-                <span className="text-muted-foreground text-[10px] uppercase font-bold block mb-0.5">WhatsApp / Telefone</span>
-                <p className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-sm text-[#1db576]">chat</span>
-                  {phone || 'Não cadastrado'}
-                </p>
-              </div>
-
-              <div className="p-3 bg-muted/40 rounded-2xl border border-border/40">
-                <span className="text-muted-foreground text-[10px] uppercase font-bold block mb-0.5">Status da Conta</span>
-                <p className="font-bold text-xs text-foreground">
-                  {isActive ? '✅ Assinatura Ativa' : '⏳ Aguardando Pagamento'}
-                </p>
-              </div>
-
-              <div className="p-3 bg-muted/40 rounded-2xl border border-border/40">
-                <span className="text-muted-foreground text-[10px] uppercase font-bold block mb-0.5">Data de Criação</span>
-                <p className="font-medium text-xs text-muted-foreground">
-                  {createdAt ? new Date(createdAt).toLocaleString('pt-BR') : '—'}
-                </p>
+              <div className="bg-muted p-4 rounded-xl">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-1">Criado em</p>
+                <p className="text-sm font-medium text-foreground">{createdAt ? new Date(createdAt).toLocaleString('pt-BR') : 'Desconhecido'}</p>
               </div>
             </div>
 
-            <button
+            <p className="text-xs text-muted-foreground text-center mb-6">
+              Para exportar todas as suas transações, acesse a aba "Lançamentos" e use o botão de exportar (CSV).
+            </p>
+
+            <button 
               onClick={() => setShowDataModal(false)}
-              className="w-full py-3 bg-primary text-primary-foreground font-bold rounded-2xl text-xs hover:bg-primary/90 transition-colors"
+              className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-sm"
             >
-              Fechar
+              Entendi
             </button>
-          </div>
+          </motion.div>
         </div>
       )}
-
     </main>
   );
 }

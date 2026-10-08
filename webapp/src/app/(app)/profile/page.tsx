@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import ProfileClient from './ProfileClient'
 
@@ -8,12 +8,11 @@ export default async function ProfilePage() {
 
   if (!user) redirect('/login')
 
-  // Busca dados do perfil na tabela public.users
   const { data: userData } = await supabase
     .from('users')
-    .select('*')
+    .select('name, phone, role, plan_status, created_at')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
   const displayName = userData?.name || user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário'
   const email = user.email || ''

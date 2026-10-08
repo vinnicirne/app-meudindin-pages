@@ -1,7 +1,12 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { Header } from "@/components/layout/Header";
+import { PushNotificationPrompt } from "@/components/ui/PushNotificationPrompt";
+import { FloatingActionButton } from "@/components/ui/FloatingActionButton";
+import { SwipeNavigation } from "@/components/layout/SwipeNavigation";
+import { AppLockGate } from "@/components/layout/AppLockGate";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -15,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .from('users')
     .select('plan_status, trial_ends_at, role')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
   if (userData && userData.role !== 'admin') {
     const status = userData.plan_status;
@@ -34,12 +39,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <>
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-        {children}
+    <AppLockGate>
+      <div className="flex flex-col sm:flex-row min-h-screen w-full bg-background">
+        <PushNotificationPrompt />
+        <Sidebar />
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pb-20 sm:pb-0">
+          <Header />
+          <SwipeNavigation>
+            {children}
+          </SwipeNavigation>
+        </div>
+        <BottomNav />
+        <FloatingActionButton />
       </div>
-      <BottomNav />
-    </>
+    </AppLockGate>
   );
 }

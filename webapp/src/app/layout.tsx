@@ -3,6 +3,8 @@ import { Plus_Jakarta_Sans, Geist } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
+import { AppLock } from "@/components/ui/AppLock";
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -14,7 +16,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "Meu DinDin | Controle Financeiro Descomplicado",
-  description: "Seu dinheiro, sob seu controle, sem complicação.",
+  description: "Seu dinheiro, sob seu controle, sem complicaÃ§Ã£o.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -29,7 +31,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Meu DinDin | Controle Financeiro Descomplicado",
-    description: "Seu dinheiro, sob seu controle, sem complica��o.",
+    description: "Seu dinheiro, sob seu controle, sem complicação.",
     url: "https://meudindinapp.vercel.app",
     siteName: "Meu DinDin",
     images: [{ url: "https://meudindinapp.vercel.app/icons/icon-512x512.png", width: 512, height: 512 }],
@@ -39,7 +41,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Meu DinDin | Controle Financeiro Descomplicado",
-    description: "Seu dinheiro, sob seu controle, sem complica��o.",
+    description: "Seu dinheiro, sob seu controle, sem complicação.",
     images: ["https://meudindinapp.vercel.app/icons/icon-512x512.png"],
   }
 };
@@ -53,6 +55,7 @@ export const viewport: Viewport = {
 };
 
 import { Toaster } from 'react-hot-toast';
+import { GlobalClickLogger } from '@/components/GlobalClickLogger';
 import { InstallPWA } from '@/components/InstallPWA';
 
 export default function RootLayout({
@@ -82,22 +85,26 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <InstallPWA />
-          <Toaster 
-            position="top-center"
-            containerStyle={{ top: 80 }}
-            toastOptions={{
-              style: {
-                borderRadius: '12px',
-                background: 'var(--tw-colors-background)',
-                color: 'var(--tw-colors-foreground)',
-                border: '1px solid var(--tw-colors-border)',
-                fontWeight: 'bold',
-                fontSize: '14px',
-              },
-            }}
-          />
+          <QueryProvider>
+            <AppLock />
+            {children}
+            <GlobalClickLogger />
+            <InstallPWA />
+            <Toaster 
+              position="top-center"
+              containerStyle={{ top: 80 }}
+              toastOptions={{
+                style: {
+                  borderRadius: '12px',
+                  background: 'var(--card)',
+                  color: 'var(--card-foreground)',
+                  border: '1px solid var(--border)',
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                },
+              }}
+            />
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

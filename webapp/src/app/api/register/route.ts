@@ -1,115 +1,84 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
-import { SupabaseAuthRepository } from '@/infrastructure/database/SupabaseAuthRepository';
-import { RegisterAndCheckoutUseCase } from '@/application/usecases/RegisterAndCheckoutUseCase';
+import { createAdminClient } from '@/utils/supabase/admin';
+import { createClient } from '@/utils/supabase/server';
 
 /**
  * POST /api/register
- * Route Handler — Fase 2.4
- *
- * Responsabilidade:
- * 1. Validar os dados recebidos
- * 2. Criar usuário via Use Case (Domain → Application → Infrastructure)
- * 3. Criar a Preference de pagamento no Mercado Pago
- * 4. Retornar o link de checkout para o frontend redirecionar
+ * Cria a conta do usuÃ¡rio no Supabase Auth + tabela users (incluindo phone/whatsapp),
+ * faz login automÃ¡tico na sessÃ£o e retorna sucesso para o frontend navegar para o paywall/checkout.
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, email, password } = body;
+    const body = await request.json().catch(() => ({}));
+    const { name, email, password, phone, referred_by } = body;
 
-    // Validação de entrada na camada de apresentação
+    // ValidaÃ§Ã£o
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: 'Nome, e-mail e senha são obrigatórios.' },
+        { error: 'Nome, e-mail e senha sÃ£o obrigatÃ³rios.' },
         { status: 400 }
       );
     }
 
-    // --- CAMADA DE APPLICATION ---
-    console.log('[DEBUG /api/register] NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.log('[DEBUG /api/register] NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 15) + '...');
-    const authRepository = new SupabaseAuthRepository();
-    const registerUseCase = new RegisterAndCheckoutUseCase(authRepository);
-    const { userId } = await registerUseCase.execute({ name, email, password });
+    const adminSupabase = createAdminClient();
 
-    // --- CAMADA DE INFRASTRUCTURE (Mercado Pago) ---
-    const mpAccessToken = process.env.MP_ACCESS_TOKEN;
-    if (!mpAccessToken) {
-      console.error('[/api/register] MP_ACCESS_TOKEN não configurado.');
-      return NextResponse.json(
-        { error: 'Configuração de pagamento ausente. Contate o suporte.' },
-        { status: 500 }
-      );
-    }
-
-    const client = new MercadoPagoConfig({
-      accessToken: mpAccessToken,
-      options: { timeout: 10000 },
+    // 1. Cria usuÃ¡rio no Auth
+    const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name,
+        phone: phone || null,
+        referred_by: referred_by || null,
+      },
     });
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    if (authError || !authData.user) {
+      if (authError?.message?.includes('already registered') || authError?.message?.includes('already been registered')) {
+        return NextResponse.json(
+          { error: 'Este e-mail jÃ¡ estÃ¡ cadastrado. FaÃ§a login para continuar.' },
+          { status: 409 }
+        );
+      }
+      throw new Error(authError?.message || 'Falha ao cadastrar usuÃ¡rio.');
+    }
 
-    const preference = new Preference(client);
-    const preferenceBody = {
-      items: [
-        {
-          id: 'meu_dindin_anual',
-          title: 'Meu DinDin — Assinatura Anual',
-          quantity: 1,
-          unit_price: 29.00,
-          currency_id: 'BRL',
-        },
-      ],
-      payer: {
+    const userId = authData.user.id;
+
+    // 2. Garante registro na tabela public.users
+    await adminSupabase
+      .from('users')
+      .upsert({
+        id: userId,
         name,
         email,
-      },
-      external_reference: userId,
-      back_urls: {
-        success: `${siteUrl}/aguardando?status=success`,
-        failure: `${siteUrl}/cadastro?error=payment_failed`,
-        pending: `${siteUrl}/aguardando?status=pending`,
-      },
-      auto_return: 'approved' as const,
-      statement_descriptor: 'MEU DINDIN',
-      metadata: {
-        user_id: userId,
-        user_email: email,
-        user_name: name,
-      },
-    };
+        phone: phone || null,
+        referred_by: referred_by || null,
+        plan_status: 'pending',
+      });
 
-    const response = await preference.create({ body: preferenceBody });
-
-    // Fazer login automático para criar a sessão (cookies)
+    // 3. Fazer login automÃ¡tico para criar a sessÃ£o (cookies)
     try {
-      const { createClient } = await import('@/utils/supabase/server');
       const supabaseClient = await createClient();
       await supabaseClient.auth.signInWithPassword({ email, password });
     } catch (authError) {
-      console.warn('[/api/register] Aviso: Erro ao fazer login automático:', authError);
+      console.warn('[/api/register] Aviso: Erro ao fazer login automÃ¡tico:', authError);
     }
 
     return NextResponse.json({
-      preferenceId: response.id,
-      checkoutUrl: response.init_point,
+      success: true,
+      userId,
     });
 
   } catch (error: any) {
     console.error('[/api/register] Erro:', error);
-
-    // Trata erros específicos do Supabase
-    if (error.message?.includes('already registered') || error.message?.includes('already been registered')) {
-      return NextResponse.json(
-        { error: 'Este e-mail já está cadastrado. Tente fazer login.' },
-        { status: 409 }
-      );
-    }
-
     return NextResponse.json(
-      { error: error.message || 'Erro interno. Tente novamente.' },
+      { error: error.message || 'Erro interno ao processar cadastro.' },
       { status: 500 }
     );
   }
 }
+
